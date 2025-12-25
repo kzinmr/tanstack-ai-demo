@@ -6,8 +6,8 @@ transferred to the client for CSV export. Since CallDeferred.metadata is not
 forwarded by the tanstack-pydantic-ai adapter, we store the data here and
 provide an API endpoint to retrieve it.
 
-The data is keyed by the dataset reference (e.g., "Out[1]") since that's what
-gets forwarded to the client in tool-input-available.input.
+The data is keyed by a composite key of (run_id, dataset_ref) to prevent
+collisions between different runs that may produce the same Out[n] reference.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class DataStore:
     """
     In-memory store for CSV export data.
 
-    Data is stored keyed by dataset reference (e.g., "Out[1]") and auto-expires
+    Data is stored keyed by a composite key of (run_id, dataset_ref) and auto-expires
     after a configurable TTL.
     """
 
@@ -58,17 +58,24 @@ class DataStore:
         self._store: dict[str, StoredData] = {}
         self._ttl = timedelta(minutes=ttl_minutes)
 
+    @staticmethod
+    def _composite_key(run_id: str, dataset_ref: str) -> str:
+        """Create a composite key for scoped storage."""
+        return f"{run_id}::{dataset_ref}"
+
     def store(
         self,
+        run_id: str,
         dataset_ref: str,
         rows: list[dict[str, Any]],
         columns: list[str],
         original_row_count: int,
     ) -> str:
         """
-        Store data keyed by dataset reference.
+        Store data keyed by run_id and dataset reference.
 
         Args:
+            run_id: The run ID that produced this dataset
             dataset_ref: Dataset reference like "Out[1]"
             rows: List of row dictionaries
             columns: List of column names
@@ -79,7 +86,8 @@ class DataStore:
         """
         self._cleanup_expired()
 
-        self._store[dataset_ref] = StoredData(
+        key = self._composite_key(run_id, dataset_ref)
+        self._store[key] = StoredData(
             rows=rows,
             columns=columns,
             original_row_count=original_row_count,
@@ -87,11 +95,12 @@ class DataStore:
         )
         return dataset_ref
 
-    def get(self, dataset_ref: str) -> StoredData | None:
+    def get(self, run_id: str, dataset_ref: str) -> StoredData | None:
         """
-        Get stored data by dataset reference.
+        Get stored data by run_id and dataset reference.
 
         Args:
+            run_id: The run ID that produced this dataset
             dataset_ref: Dataset reference like "Out[1]"
 
         Returns:
@@ -99,29 +108,32 @@ class DataStore:
         """
         self._cleanup_expired()
 
-        data = self._store.get(dataset_ref)
+        key = self._composite_key(run_id, dataset_ref)
+        data = self._store.get(key)
         if data is None:
             return None
 
         # Check if expired
         if datetime.now() - data.created_at > self._ttl:
-            del self._store[dataset_ref]
+            del self._store[key]
             return None
 
         return data
 
-    def delete(self, dataset_ref: str) -> bool:
+    def delete(self, run_id: str, dataset_ref: str) -> bool:
         """
-        Delete stored data by dataset reference.
+        Delete stored data by run_id and dataset reference.
 
         Args:
+            run_id: The run ID that produced this dataset
             dataset_ref: Dataset reference like "Out[1]"
 
         Returns:
             True if deleted, False if not found
         """
-        if dataset_ref in self._store:
-            del self._store[dataset_ref]
+        key = self._composite_key(run_id, dataset_ref)
+        if key in self._store:
+            del self._store[key]
             return True
         return False
 
@@ -129,12 +141,12 @@ class DataStore:
         """Remove expired entries from the store."""
         now = datetime.now()
         expired = [
-            ref
-            for ref, data in self._store.items()
+            key
+            for key, data in self._store.items()
             if now - data.created_at > self._ttl
         ]
-        for ref in expired:
-            del self._store[ref]
+        for key in expired:
+            del self._store[key]
 
 
 def get_csv_data_store() -> DataStore:

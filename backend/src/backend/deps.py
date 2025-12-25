@@ -22,10 +22,12 @@ class Deps:
 
     Attributes:
         conn: Database connection for executing SQL queries
+        run_id: Unique identifier for this run (used for scoping Out[n] references)
         output: Storage for DataFrames referenced as Out[n]
     """
 
     conn: asyncpg.Connection
+    run_id: str
     output: dict[str, pd.DataFrame] = field(default_factory=dict)
 
     def store(self, df: pd.DataFrame) -> str:

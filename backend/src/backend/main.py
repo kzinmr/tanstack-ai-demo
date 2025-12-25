@@ -105,8 +105,17 @@ async def chat(request: Request) -> StreamingResponse:
 
     Returns SSE stream with TanStack AI compatible chunks.
     """
+    import json
+
     body = await request.body()
     accept = request.headers.get("accept")
+
+    # Parse run_id from body for Deps (used to scope Out[n] references)
+    try:
+        body_json = json.loads(body) if body else {}
+        run_id = body_json.get("run_id") or uuid.uuid4().hex
+    except json.JSONDecodeError:
+        run_id = uuid.uuid4().hex
 
     async def stream() -> AsyncIterator[bytes]:
         # IMPORTANT: keep DB connection open for the entire stream duration.
@@ -122,7 +131,7 @@ async def chat(request: Request) -> StreamingResponse:
 
         try:
             async with get_db_connection() as conn:
-                deps = Deps(conn=conn)
+                deps = Deps(conn=conn, run_id=run_id)
                 adapter = TanStackAIAdapter.from_request(
                     agent=agent,
                     body=body,
@@ -152,22 +161,23 @@ async def chat(request: Request) -> StreamingResponse:
     return StreamingResponse(stream(), headers=_sse_headers())
 
 
-@app.get("/api/data/{dataset:path}")
-async def get_csv_data(dataset: str) -> dict:
+@app.get("/api/data/{run_id}/{dataset:path}")
+async def get_csv_data(run_id: str, dataset: str) -> dict:
     """
-    Get CSV export data by dataset reference.
+    Get CSV export data by run_id and dataset reference.
 
     This endpoint is called by the frontend after receiving a tool-input-available
     chunk for the export_csv tool. The dataset reference (e.g., "Out[1]") is
-    included in the tool args.
+    included in the tool args, and the run_id is used to scope the data.
 
     Args:
+        run_id: The run ID that produced this dataset
         dataset: The dataset reference (e.g., "Out[1]")
 
     Returns:
         JSON with rows, columns, and row count information
     """
-    data = csv_data_store().get(dataset)
+    data = csv_data_store().get(run_id, dataset)
     if data is None:
         raise HTTPException(status_code=404, detail="Data not found or expired")
 

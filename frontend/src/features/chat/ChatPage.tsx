@@ -190,6 +190,11 @@ export function ChatPage() {
     toolResults: {},
   });
 
+  // Track which runId each message belongs to (for scoped data fetching)
+  const [messageRunIdMap, setMessageRunIdMap] = useState<Record<string, string>>(
+    {}
+  );
+
   const getContinuationState = useCallback((): ContinuationState => {
     const snapshot = {
       pending: continuationRef.current.pending,
@@ -230,6 +235,7 @@ export function ChatPage() {
         toolCallId: chunk.toolCallId,
         toolName: chunk.toolName,
         input: chunk.input,
+        runId: chunk.id,  // Include run_id for scoped data fetch
       });
     }
   }, []);
@@ -250,6 +256,24 @@ export function ChatPage() {
   useEffect(() => {
     setVisibleError(error ?? null);
   }, [error]);
+
+  // Associate assistant messages with their runId for scoped data fetching
+  useEffect(() => {
+    const currentRunId = continuationRef.current.runId;
+    if (!currentRunId) return;
+
+    // Find assistant messages that don't have a runId mapping yet
+    const newMappings: Record<string, string> = {};
+    for (const msg of messages) {
+      if (msg.role === "assistant" && !messageRunIdMap[msg.id]) {
+        newMappings[msg.id] = currentRunId;
+      }
+    }
+
+    if (Object.keys(newMappings).length > 0) {
+      setMessageRunIdMap((prev) => ({ ...prev, ...newMappings }));
+    }
+  }, [messages, messageRunIdMap]);
 
   const pendingApprovals = useMemo(
     () => collectPendingApprovals(messages, manualApprovalResponses),
@@ -413,6 +437,7 @@ export function ChatPage() {
               <MessageBubble
                 key={message.id}
                 message={message}
+                runId={messageRunIdMap[message.id]}
                 pendingApprovalByToolCallId={pendingApprovalByToolCallId}
                 onApprove={handleApprove}
                 onDeny={handleDeny}
@@ -484,6 +509,7 @@ export function ChatPage() {
  */
 interface MessageBubbleProps {
   message: UIMessage;
+  runId?: string;
   pendingApprovalByToolCallId: Record<string, ApprovalInfo>;
   onApprove?: (approvalId: string) => void;
   onDeny?: (approvalId: string) => void;
@@ -492,6 +518,7 @@ interface MessageBubbleProps {
 
 function MessageBubble({
   message,
+  runId,
   pendingApprovalByToolCallId,
   onApprove,
   onDeny,
@@ -516,7 +543,7 @@ function MessageBubble({
   useEffect(() => {
     if (isUser) return;
 
-    if (!datasetRef) {
+    if (!datasetRef || !runId) {
       setDatasetPreview(null);
       setPreviewError(null);
       return;
@@ -528,7 +555,9 @@ function MessageBubble({
 
     (async () => {
       try {
-        const res = await fetch(`/api/data/${encodeURIComponent(datasetRef)}`);
+        const res = await fetch(
+          `/api/data/${encodeURIComponent(runId)}/${encodeURIComponent(datasetRef)}`
+        );
         if (!res.ok) {
           throw new Error(`Failed to fetch data: ${res.statusText}`);
         }
@@ -545,7 +574,7 @@ function MessageBubble({
     return () => {
       cancelled = true;
     };
-  }, [datasetRef, isUser]);
+  }, [datasetRef, runId, isUser]);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>

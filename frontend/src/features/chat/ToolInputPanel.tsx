@@ -9,6 +9,7 @@ export interface ClientToolInfo {
   toolCallId: string;
   toolName: string;
   input: unknown;
+  runId: string;
 }
 
 export interface ToolResultPayload {
@@ -173,8 +174,12 @@ export function ToolInputPanel({
       setFetchError(null);
       try {
         const dataset = datasetRef;
+        const runId = clientTool?.runId;
+        if (!runId) {
+          throw new Error("Missing run ID for data fetch");
+        }
         const response = await fetch(
-          `/api/data/${encodeURIComponent(dataset!)}`
+          `/api/data/${encodeURIComponent(runId)}/${encodeURIComponent(dataset!)}`
         );
         if (!response.ok) {
           throw new Error(`Failed to fetch data: ${response.statusText}`);
@@ -190,7 +195,7 @@ export function ToolInputPanel({
     };
 
     fetchData();
-  }, [clientTool?.toolCallId, datasetRef]);
+  }, [clientTool?.toolCallId, clientTool?.runId, datasetRef]);
 
   if (!clientTool) return null;
 

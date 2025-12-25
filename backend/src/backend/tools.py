@@ -94,6 +94,7 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
                     df_serializable[col] = df_serializable[col].astype(str)
             limited_df = df_serializable.head(max_rows)
             csv_data_store().store(
+                run_id=ctx.deps.run_id,
                 dataset_ref=ref,
                 rows=limited_df.to_dict(orient="records"),
                 columns=list(limited_df.columns),
@@ -137,6 +138,7 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
                     df_serializable[col] = df_serializable[col].astype(str)
             limited_df = df_serializable.head(max_rows)
             csv_data_store().store(
+                run_id=ctx.deps.run_id,
                 dataset_ref=dataset,
                 rows=limited_df.to_dict(orient="records"),
                 columns=list(limited_df.columns),
@@ -178,6 +180,7 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
                     df_serializable[col] = df_serializable[col].astype(str)
             limited_df = df_serializable.head(max_rows)
             csv_data_store().store(
+                run_id=ctx.deps.run_id,
                 dataset_ref=ref,
                 rows=limited_df.to_dict(orient="records"),
                 columns=list(limited_df.columns),
@@ -212,7 +215,7 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
         # Instead, we rely on the server-side csv_data_store keyed by dataset ref,
         # which is populated when datasets are created (execute_sql/run_duckdb).
         # The client tool panel will fetch the actual data from /api/data/{dataset}.
-        if csv_data_store().get(dataset) is None:
+        if csv_data_store().get(ctx.deps.run_id, dataset) is None:
             return (
                 f"エクスポート対象のデータ `{dataset}` が見つかりませんでした。"
                 "直前にクエリを実行して結果（Out[n]）を作成してから、もう一度CSV出力してください。"
