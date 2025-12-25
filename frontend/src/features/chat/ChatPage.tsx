@@ -714,6 +714,8 @@ function ToolCallPartView({
   onDeny,
   isLoading = false,
 }: ToolCallPartViewProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
   const approvalStatus = part.approval?.approved;
   const needsApproval = part.approval?.needsApproval ?? false;
   const isPendingApproval =
@@ -738,8 +740,27 @@ function ToolCallPartView({
   return (
     <div>
       <div className="rounded-md border border-gray-200 bg-gray-50 p-2 text-xs">
-        <div className="flex items-center justify-between">
-          <span className="font-medium text-gray-700">Tool: {part.name}</span>
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center justify-between w-full text-left"
+        >
+          <div className="flex items-center gap-1">
+            <svg
+              className={`w-3 h-3 text-gray-500 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+            <span className="font-medium text-gray-700">Tool: {part.name}</span>
+          </div>
           <span
             className={`${
               isPendingApproval
@@ -753,10 +774,12 @@ function ToolCallPartView({
           >
             {statusLabel}
           </span>
-        </div>
-        <pre className="mt-2 whitespace-pre-wrap text-gray-600">
-          {formatToolArguments(part.arguments)}
-        </pre>
+        </button>
+        {isExpanded && (
+          <pre className="mt-2 whitespace-pre-wrap text-gray-600 pl-4">
+            {formatToolArguments(part.arguments)}
+          </pre>
+        )}
       </div>
 
       {isPendingApproval && onApprove && onDeny && approvalId && (
@@ -774,10 +797,35 @@ function ToolCallPartView({
 }
 
 function ToolResultPartView({ part }: { part: ToolResultPart }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
   return (
     <div className="rounded-md border border-gray-200 bg-white p-2 text-xs">
-      <div className="text-gray-500 mb-1">Tool result</div>
-      <div className="whitespace-pre-wrap text-gray-700">{part.content}</div>
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center gap-1 text-gray-500 hover:text-gray-700 w-full text-left"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 5l7 7-7 7"
+          />
+        </svg>
+        <span>Tool result</span>
+      </button>
+      {isExpanded && (
+        <div className="whitespace-pre-wrap text-gray-700 mt-2 pl-4">
+          {part.content}
+        </div>
+      )}
     </div>
   );
 }
