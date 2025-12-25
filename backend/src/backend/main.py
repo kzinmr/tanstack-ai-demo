@@ -2,8 +2,7 @@
 FastAPI application for the TanStack AI HITL Demo.
 
 This module provides:
-- POST /api/chat: Start a new chat stream
-- POST /api/chat/continue: Continue after HITL approval/client tool execution
+- POST /api/chat: Start or continue a chat stream
 - GET /health: Health check endpoint
 """
 
@@ -96,11 +95,13 @@ async def _stream_init_error(message: str) -> AsyncIterator[bytes]:
 @app.post("/api/chat")
 async def chat(request: Request) -> StreamingResponse:
     """
-    Start a new chat stream.
+    Start or continue a chat stream.
 
     Request body should contain:
     - messages: List of chat messages
     - model: (optional) Model override
+    - run_id: (optional) Run ID for continuation
+    - approvals/tool_results: (optional) HITL continuation payload
 
     Returns SSE stream with TanStack AI compatible chunks.
     """
@@ -135,72 +136,6 @@ async def chat(request: Request) -> StreamingResponse:
             # Ensure we always emit a TanStack-compatible error chunk rather than
             # failing the stream silently.
             logger.exception("Unhandled error while streaming /api/chat")
-            event_stream = TanStackAIAdapter.from_request(
-                agent=agent,
-                body=body,
-                accept=accept,
-                deps=None,
-                store=store,
-            ).build_event_stream()
-            async for error_chunk in event_stream.on_error(exc):
-                yield event_stream.encode_event(error_chunk).encode("utf-8")
-            async for done_chunk in event_stream.after_stream():
-                yield event_stream.encode_event(done_chunk).encode("utf-8")
-            yield encode_done().encode("utf-8")
-
-    return StreamingResponse(stream(), headers=_sse_headers())
-
-
-@app.post("/api/chat/continue")
-async def chat_continue(request: Request) -> StreamingResponse:
-    """
-    Continue a chat after HITL approval or client tool execution.
-
-    Request body should contain:
-    - run_id: The run ID from the previous stream
-    - approvals: (optional) Map of tool_call_id -> true/false for approval
-    - tool_results: (optional) Map of tool_call_id -> result for client tools
-
-    Example approval request:
-    {
-        "run_id": "abc123",
-        "approvals": {"tool_call_id_1": true}
-    }
-
-    Example client tool result:
-    {
-        "run_id": "abc123",
-        "tool_results": {"tool_call_id_2": {"filename": "result.csv", "rowCount": 100}}
-    }
-
-    Returns SSE stream continuing from where it left off.
-    """
-    body = await request.body()
-    accept = request.headers.get("accept")
-
-    async def stream() -> AsyncIterator[bytes]:
-        try:
-            agent = get_agent()
-        except Exception as exc:
-            logger.exception("Failed to construct agent")
-            async for b in _stream_init_error(str(exc)):
-                yield b
-            return
-
-        try:
-            async with get_db_connection() as conn:
-                deps = Deps(conn=conn)
-                adapter = TanStackAIAdapter.from_request(
-                    agent=agent,
-                    body=body,
-                    accept=accept,
-                    deps=deps,
-                    store=store,
-                )
-                async for chunk in adapter.streaming_response():
-                    yield chunk
-        except Exception as exc:
-            logger.exception("Unhandled error while streaming /api/chat/continue")
             event_stream = TanStackAIAdapter.from_request(
                 agent=agent,
                 body=body,
