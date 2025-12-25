@@ -178,6 +178,7 @@ export function ChatPage() {
   const [pendingClientTool, setPendingClientTool] =
     useState<ClientToolInfo | null>(null);
   const [visibleError, setVisibleError] = useState<Error | null>(null);
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [manualApprovalResponses, setManualApprovalResponses] = useState<
     Record<string, boolean>
   >({});
@@ -226,8 +227,11 @@ export function ChatPage() {
   );
 
   const handleChunk = useCallback((chunk: StreamChunk) => {
-    if (chunk.id && chunk.id !== continuationRef.current.runId) {
-      continuationRef.current.runId = chunk.id;
+    if (chunk.id) {
+      if (chunk.id !== continuationRef.current.runId) {
+        continuationRef.current.runId = chunk.id;
+      }
+      setCurrentRunId((prev) => (prev === chunk.id ? prev : chunk.id));
     }
 
     if (chunk.type === "tool-input-available") {
@@ -259,7 +263,6 @@ export function ChatPage() {
 
   // Associate assistant messages with their runId for scoped data fetching
   useEffect(() => {
-    const currentRunId = continuationRef.current.runId;
     if (!currentRunId) return;
 
     // Find assistant messages that don't have a runId mapping yet
@@ -273,7 +276,7 @@ export function ChatPage() {
     if (Object.keys(newMappings).length > 0) {
       setMessageRunIdMap((prev) => ({ ...prev, ...newMappings }));
     }
-  }, [messages, messageRunIdMap]);
+  }, [messages, messageRunIdMap, currentRunId]);
 
   const pendingApprovals = useMemo(
     () => collectPendingApprovals(messages, manualApprovalResponses),

@@ -110,12 +110,27 @@ async def chat(request: Request) -> StreamingResponse:
     body = await request.body()
     accept = request.headers.get("accept")
 
-    # Parse run_id from body for Deps (used to scope Out[n] references)
+    # Parse run_id from body for Deps (used to scope Out[n] references).
+    # Ensure the same run_id is used by both Deps and the adapter.
     try:
         body_json = json.loads(body) if body else {}
-        run_id = body_json.get("run_id") or uuid.uuid4().hex
     except json.JSONDecodeError:
+        body_json = None
+
+    run_id = None
+    if isinstance(body_json, dict):
+        run_id = body_json.get("run_id")
+        if not run_id:
+            data = body_json.get("data") or {}
+            if isinstance(data, dict):
+                run_id = data.get("conversationId")
+
+    if not run_id:
         run_id = uuid.uuid4().hex
+
+    if isinstance(body_json, dict):
+        body_json["run_id"] = run_id
+        body = json.dumps(body_json).encode("utf-8")
 
     async def stream() -> AsyncIterator[bytes]:
         # IMPORTANT: keep DB connection open for the entire stream duration.
