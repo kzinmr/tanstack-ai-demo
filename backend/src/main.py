@@ -12,13 +12,14 @@ from __future__ import annotations
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from tanstack_pydantic_ai import InMemoryRunStore, TanStackAIAdapter
 
 from .agent import agent
+from .data_store import csv_data_store
 from .db import get_db_connection
 from .deps import Deps
 
@@ -111,6 +112,33 @@ async def chat_continue(request: Request) -> StreamingResponse:
             adapter.streaming_response(),
             headers=dict(adapter.response_headers),
         )
+
+
+@app.get("/api/data/{dataset:path}")
+async def get_csv_data(dataset: str) -> dict:
+    """
+    Get CSV export data by dataset reference.
+
+    This endpoint is called by the frontend after receiving a tool-input-available
+    chunk for the export_csv tool. The dataset reference (e.g., "Out[1]") is
+    included in the tool args.
+
+    Args:
+        dataset: The dataset reference (e.g., "Out[1]")
+
+    Returns:
+        JSON with rows, columns, and row count information
+    """
+    data = csv_data_store.get(dataset)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Data not found or expired")
+
+    return {
+        "rows": data.rows,
+        "columns": data.columns,
+        "original_row_count": data.original_row_count,
+        "exported_row_count": data.exported_row_count,
+    }
 
 
 @app.get("/health")

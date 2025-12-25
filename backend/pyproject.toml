@@ -1,8 +1,12 @@
+[build-system]
+requires = ["uv_build>=0.7.5,<0.8"]
+build-backend = "uv_build"
+
 [project]
-name = "tanstack-ai-demo-backend"
+name = "backend"
 version = "0.1.0"
 description = "TanStack AI + pydantic-ai HITL Demo Backend"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
@@ -16,7 +20,3 @@ dependencies = [
 
 [tool.uv.sources]
 tanstack-pydantic-ai = { git = "https://github.com/kzinmr/tanstack-pydantic-ai.git" }
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"

@@ -34,10 +34,7 @@ export interface ClientToolInfo {
   toolCallId: string;
   toolName: string;
   input: {
-    rows?: Record<string, unknown>[];
-    columns?: string[];
-    original_row_count?: number;
-    exported_row_count?: number;
+    dataset?: string;  // Dataset reference like "Out[1]"
     [key: string]: unknown;
   };
 }
@@ -169,6 +166,15 @@ export function useChatStream(
               messagesRef.current.push({
                 role: "assistant",
                 content: currentContent,
+              });
+            } else {
+              // Remove empty assistant message (the "Thinking..." placeholder)
+              setMessages((prev) => {
+                const lastMessage = prev[prev.length - 1];
+                if (lastMessage?.role === "assistant" && !lastMessage.content) {
+                  return prev.slice(0, -1);
+                }
+                return prev;
               });
             }
             break;

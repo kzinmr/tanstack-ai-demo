@@ -198,5 +198,17 @@ async def _insert_sample_data(conn: asyncpg.Connection) -> None:
 @asynccontextmanager
 async def get_db_connection() -> AsyncGenerator[asyncpg.Connection, None]:
     """Get a database connection using environment configuration."""
-    async with database_connect() as conn:
+    db_url = get_database_url()
+    # Parse DATABASE_URL to extract server DSN and database name
+    # Format: postgresql://user:pass@host:port/database
+    if "/" in db_url.rsplit("@", 1)[-1]:
+        # Has database name in URL
+        parts = db_url.rsplit("/", 1)
+        server_dsn = parts[0]
+        database = parts[1].split("?")[0]  # Remove query params if any
+    else:
+        server_dsn = db_url
+        database = "pydantic_ai_sql_gen"
+
+    async with database_connect(server_dsn=server_dsn, database=database) as conn:
         yield conn

@@ -2,13 +2,22 @@
  * Panel for client-side tool execution (e.g., CSV export).
  */
 
+import { useState, useEffect } from "react";
 import { Button } from "baseui/button";
+import { Spinner } from "baseui/spinner";
 import { ClientToolInfo } from "./useChatStream";
 
 interface ToolInputPanelProps {
   clientTool: ClientToolInfo | null;
   onComplete: (toolCallId: string, result: Record<string, unknown>) => void;
   isLoading: boolean;
+}
+
+interface CSVData {
+  rows: Record<string, unknown>[];
+  columns: string[];
+  original_row_count: number;
+  exported_row_count: number;
 }
 
 /**
@@ -74,22 +83,53 @@ export function ToolInputPanel({
   onComplete,
   isLoading,
 }: ToolInputPanelProps) {
+  const [csvData, setCsvData] = useState<CSVData | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+
+  // Fetch CSV data when clientTool changes
+  useEffect(() => {
+    if (!clientTool?.input.dataset) {
+      setCsvData(null);
+      setFetchError(null);
+      return;
+    }
+
+    const fetchData = async () => {
+      setIsFetching(true);
+      setFetchError(null);
+      try {
+        const dataset = clientTool.input.dataset;
+        const response = await fetch(`/api/data/${encodeURIComponent(dataset!)}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch data: ${response.statusText}`);
+        }
+        const data = await response.json();
+        setCsvData(data);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        setFetchError(message);
+      } finally {
+        setIsFetching(false);
+      }
+    };
+
+    fetchData();
+  }, [clientTool?.toolCallId, clientTool?.input.dataset]);
+
   if (!clientTool) return null;
 
   const handleExecute = () => {
-    const { rows, columns } = clientTool.input;
-
-    if (!rows || !columns) {
-      console.error("Missing rows or columns in tool input");
+    if (!csvData) {
       onComplete(clientTool.toolCallId, {
-        error: "Missing data",
+        error: "No data available",
         success: false,
       });
       return;
     }
 
     try {
-      const result = downloadCSV(rows, columns, "export.csv");
+      const result = downloadCSV(csvData.rows, csvData.columns, "export.csv");
       onComplete(clientTool.toolCallId, {
         ...result,
         success: true,
@@ -103,9 +143,30 @@ export function ToolInputPanel({
     }
   };
 
-  const rowCount = clientTool.input.rows?.length ?? 0;
-  const columnCount = clientTool.input.columns?.length ?? 0;
-  const originalCount = clientTool.input.original_row_count ?? rowCount;
+  // Show loading state while fetching
+  if (isFetching) {
+    return (
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 my-4">
+        <div className="flex items-center gap-3">
+          <Spinner size={24} />
+          <span className="text-blue-700">Loading CSV data...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error if fetch failed
+  if (fetchError) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 my-4">
+        <p className="text-red-700">Error loading data: {fetchError}</p>
+      </div>
+    );
+  }
+
+  const rowCount = csvData?.exported_row_count ?? 0;
+  const columnCount = csvData?.columns?.length ?? 0;
+  const originalCount = csvData?.original_row_count ?? rowCount;
 
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 my-4">

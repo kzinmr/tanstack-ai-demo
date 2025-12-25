@@ -44,7 +44,7 @@ This demo showcases a SQL analysis agent that requires user approval before exec
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - Node.js 18+
 - Docker (for PostgreSQL)
 - uv (Python package manager)
@@ -103,6 +103,7 @@ Enter this message to experience the HITL flow:
 | ------------------------- | ----------------------------------------- |
 | `POST /api/chat`          | Start new chat stream                     |
 | `POST /api/chat/continue` | HITL continuation (approval/tool results) |
+| `GET /api/data/{dataset}` | Get CSV export data by dataset reference  |
 | `GET /health`             | Health check                              |
 
 ### Request Examples

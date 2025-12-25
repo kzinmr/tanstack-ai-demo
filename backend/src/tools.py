@@ -13,10 +13,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import re
+
 import duckdb
 import pandas as pd
 from pydantic_ai import CallDeferred, RunContext
 
+from .data_store import csv_data_store
 from .db import DB_SCHEMA
 from .deps import Deps
 
@@ -55,6 +58,24 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
         sql_upper = sql.strip().upper()
         if not sql_upper.startswith("SELECT"):
             return "Error: Only SELECT queries are allowed for safety."
+
+        # Enforce LIMIT for safety - add if not present
+        max_limit = 1000
+        if "LIMIT" not in sql_upper:
+            sql = f"{sql.rstrip().rstrip(';')} LIMIT {max_limit}"
+        else:
+            # Check if existing LIMIT is too high
+            limit_match = re.search(r"LIMIT\s+(\d+)", sql_upper)
+            if limit_match:
+                existing_limit = int(limit_match.group(1))
+                if existing_limit > max_limit:
+                    # Replace with max_limit
+                    sql = re.sub(
+                        r"LIMIT\s+\d+",
+                        f"LIMIT {max_limit}",
+                        sql,
+                        flags=re.IGNORECASE,
+                    )
 
         try:
             rows = await ctx.deps.conn.fetch(sql)
@@ -112,7 +133,8 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
         Export a dataset as CSV file (executed on client side).
 
         This tool requires user approval and is executed in the browser.
-        After approval, the client will receive the data and generate the CSV.
+        After approval, the client will receive the data reference and fetch
+        the actual data from /api/data/{ref_id} endpoint.
 
         Args:
             dataset: Reference to the dataset to export (e.g., "Out[1]")
@@ -121,6 +143,7 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
             Never returns normally - raises CallDeferred for client execution
         """
         df = ctx.deps.get(dataset)
+        original_row_count = len(df)
 
         # Limit rows for safety
         max_rows = 1000
@@ -137,12 +160,18 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
         rows = df_serializable.to_dict(orient="records")
         columns = list(df_serializable.columns)
 
-        # Raise CallDeferred to hand off to client for CSV generation
-        raise CallDeferred(
-            metadata={
-                "rows": rows,
-                "columns": columns,
-                "original_row_count": len(df),
-                "exported_row_count": len(rows),
-            }
+        # Store data in global store keyed by dataset reference
+        # This is needed because CallDeferred.metadata is not forwarded
+        # by the tanstack-pydantic-ai adapter. The frontend will receive
+        # the dataset reference in tool-input-available.input and can
+        # fetch the actual data from /api/data/{dataset}
+        csv_data_store.store(
+            dataset_ref=dataset,
+            rows=rows,
+            columns=columns,
+            original_row_count=original_row_count,
         )
+
+        # Raise CallDeferred - the dataset reference is included in the tool args
+        # which get forwarded to tool-input-available.input
+        raise CallDeferred()
