@@ -187,11 +187,9 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
         except Exception as e:
             return f"Error executing DuckDB query: {e}"
 
-    # NOTE: export_csv is a client-side tool (CallDeferred). We intentionally do
-    # NOT mark it as requires_approval here, because we want TanStack to receive
-    # a `tool-input-available` chunk and render the ToolInputPanel which fetches
-    # `/api/data/{dataset}` to resolve Out[n] into actual rows for download.
-    @agent.tool
+    # NOTE: export_csv is a client-side tool (CallDeferred). We mark it as
+    # requires_approval so the demo shows HITL before the client execution.
+    @agent.tool(requires_approval=True)
     async def export_csv(ctx: RunContext[Deps], dataset: str) -> str:
         """
         Export a dataset as CSV file (executed on client side).
