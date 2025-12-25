@@ -306,7 +306,13 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
         tool_name: str,
         args: Any,
     ) -> AsyncIterator[StreamChunk]:
-        """Handle deferred tool requiring approval."""
+        """Handle deferred tool requiring approval.
+        NOTE: approval.id = toolCallId
+        - Tanstack AI uses part.approval.id for approval response
+        - https://tanstack.com/ai/latest/docs/guides/tool-approval
+        - pydantic-ai uses tool_call_id for approval map key
+        - https://ai.pydantic.dev/deferred-tools/
+        """
         yield ApprovalRequestedStreamChunk(
             id=self.message_id,
             model=self._model_name,
