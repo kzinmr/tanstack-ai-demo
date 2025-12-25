@@ -10,6 +10,7 @@ This module provides:
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+import logging
 import uuid
 
 from fastapi import FastAPI, HTTPException, Request
@@ -52,6 +53,17 @@ app.add_middleware(
 # In-memory store for HITL continuation
 store = InMemoryRunStore()
 
+logger = logging.getLogger(__name__)
+
+
+def _sse_headers() -> dict[str, str]:
+    # Keep consistent with TanStackAIAdapter.response_headers
+    return {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+    }
+
 
 async def _stream_init_error(message: str) -> AsyncIterator[bytes]:
     """
@@ -92,30 +104,51 @@ async def chat(request: Request) -> StreamingResponse:
 
     Returns SSE stream with TanStack AI compatible chunks.
     """
-    try:
-        agent = get_agent()
-    except Exception as exc:
-        return StreamingResponse(
-            _stream_init_error(str(exc)),
-            headers={
-                "Content-Type": "text/event-stream",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
-    async with get_db_connection() as conn:
-        deps = Deps(conn=conn)
-        adapter = TanStackAIAdapter.from_request(
-            agent=agent,
-            body=await request.body(),
-            accept=request.headers.get("accept"),
-            deps=deps,
-            store=store,
-        )
-        return StreamingResponse(
-            adapter.streaming_response(),
-            headers=dict(adapter.response_headers),
-        )
+    body = await request.body()
+    accept = request.headers.get("accept")
+
+    async def stream() -> AsyncIterator[bytes]:
+        # IMPORTANT: keep DB connection open for the entire stream duration.
+        # Otherwise tool execution (especially after HITL approval) can fail with
+        # "connection is closed" when the request handler returns.
+        try:
+            agent = get_agent()
+        except Exception as exc:
+            logger.exception("Failed to construct agent")
+            async for b in _stream_init_error(str(exc)):
+                yield b
+            return
+
+        try:
+            async with get_db_connection() as conn:
+                deps = Deps(conn=conn)
+                adapter = TanStackAIAdapter.from_request(
+                    agent=agent,
+                    body=body,
+                    accept=accept,
+                    deps=deps,
+                    store=store,
+                )
+                async for chunk in adapter.streaming_response():
+                    yield chunk
+        except Exception as exc:
+            # Ensure we always emit a TanStack-compatible error chunk rather than
+            # failing the stream silently.
+            logger.exception("Unhandled error while streaming /api/chat")
+            event_stream = TanStackAIAdapter.from_request(
+                agent=agent,
+                body=body,
+                accept=accept,
+                deps=None,
+                store=store,
+            ).build_event_stream()
+            async for error_chunk in event_stream.on_error(exc):
+                yield event_stream.encode_event(error_chunk).encode("utf-8")
+            async for done_chunk in event_stream.after_stream():
+                yield event_stream.encode_event(done_chunk).encode("utf-8")
+            yield encode_done().encode("utf-8")
+
+    return StreamingResponse(stream(), headers=_sse_headers())
 
 
 @app.post("/api/chat/continue")
@@ -142,30 +175,46 @@ async def chat_continue(request: Request) -> StreamingResponse:
 
     Returns SSE stream continuing from where it left off.
     """
-    try:
-        agent = get_agent()
-    except Exception as exc:
-        return StreamingResponse(
-            _stream_init_error(str(exc)),
-            headers={
-                "Content-Type": "text/event-stream",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
-    async with get_db_connection() as conn:
-        deps = Deps(conn=conn)
-        adapter = TanStackAIAdapter.from_request(
-            agent=agent,
-            body=await request.body(),
-            accept=request.headers.get("accept"),
-            deps=deps,
-            store=store,
-        )
-        return StreamingResponse(
-            adapter.streaming_response(),
-            headers=dict(adapter.response_headers),
-        )
+    body = await request.body()
+    accept = request.headers.get("accept")
+
+    async def stream() -> AsyncIterator[bytes]:
+        try:
+            agent = get_agent()
+        except Exception as exc:
+            logger.exception("Failed to construct agent")
+            async for b in _stream_init_error(str(exc)):
+                yield b
+            return
+
+        try:
+            async with get_db_connection() as conn:
+                deps = Deps(conn=conn)
+                adapter = TanStackAIAdapter.from_request(
+                    agent=agent,
+                    body=body,
+                    accept=accept,
+                    deps=deps,
+                    store=store,
+                )
+                async for chunk in adapter.streaming_response():
+                    yield chunk
+        except Exception as exc:
+            logger.exception("Unhandled error while streaming /api/chat/continue")
+            event_stream = TanStackAIAdapter.from_request(
+                agent=agent,
+                body=body,
+                accept=accept,
+                deps=None,
+                store=store,
+            ).build_event_stream()
+            async for error_chunk in event_stream.on_error(exc):
+                yield event_stream.encode_event(error_chunk).encode("utf-8")
+            async for done_chunk in event_stream.after_stream():
+                yield event_stream.encode_event(done_chunk).encode("utf-8")
+            yield encode_done().encode("utf-8")
+
+    return StreamingResponse(stream(), headers=_sse_headers())
 
 
 @app.get("/api/data/{dataset:path}")
