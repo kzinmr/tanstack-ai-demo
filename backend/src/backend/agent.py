@@ -7,9 +7,16 @@ Based on pydantic-ai sql-gen example with HITL support.
 from __future__ import annotations
 
 from datetime import date
+from functools import lru_cache
 from typing import Any
 
-from pydantic_ai import Agent, DeferredToolRequests, ModelRetry, RunContext, format_as_xml
+from pydantic_ai import (
+    Agent,
+    DeferredToolRequests,
+    ModelRetry,
+    RunContext,
+    format_as_xml,
+)
 
 from .db import DB_SCHEMA, SQL_EXAMPLES
 from .deps import Deps
@@ -19,18 +26,27 @@ from .tools import register_tools
 # Get settings
 settings = get_settings()
 
-# Create the agent
-agent: Agent[Deps, str | DeferredToolRequests] = Agent(
-    settings.llm_model,
-    deps_type=Deps,
-    output_type=[str, DeferredToolRequests],
-)
 
-# Register tools
-register_tools(agent)
+@lru_cache
+def get_agent() -> Agent[Deps, str | DeferredToolRequests]:
+    """
+    Lazily create the Agent.
+
+    This avoids crashing the FastAPI app import if the LLM provider is not
+    configured yet (e.g. missing API keys). Errors are handled at request time.
+    """
+    agent: Agent[Deps, str | DeferredToolRequests] = Agent(
+        settings.llm_model,
+        deps_type=Deps,
+        output_type=[str, DeferredToolRequests],
+    )
+    register_tools(agent)
+    # Register prompt/validators lazily as well (avoid module import-time failures)
+    agent.system_prompt(system_prompt)
+    agent.output_validator(validate_sql_output)
+    return agent
 
 
-@agent.system_prompt
 async def system_prompt() -> str:
     """Generate the system prompt with current date and schema."""
     return f"""\
@@ -70,7 +86,6 @@ log data stored in a PostgreSQL database.
 """
 
 
-@agent.output_validator
 async def validate_sql_output(ctx: RunContext[Deps], output: Any) -> Any:
     """
     Validate that SQL queries are safe.
@@ -95,7 +110,9 @@ async def validate_sql_output(ctx: RunContext[Deps], output: Any) -> Any:
 
         # Check SELECT only
         if not sql.startswith("SELECT"):
-            raise ModelRetry("Only SELECT queries are allowed. Please rewrite the query.")
+            raise ModelRetry(
+                "Only SELECT queries are allowed. Please rewrite the query."
+            )
 
         # Check for LIMIT (relaxed check - some queries like COUNT don't need it)
         if "LIMIT" not in sql and "COUNT" not in sql and "SUM" not in sql:

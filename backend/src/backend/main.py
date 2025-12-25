@@ -9,13 +9,22 @@ This module provides:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+import uuid
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from tanstack_pydantic_ai import InMemoryRunStore, TanStackAIAdapter
+from tanstack_pydantic_ai.shared.chunks import (
+    DoneStreamChunk,
+    ErrorObj,
+    ErrorStreamChunk,
+)
+from tanstack_pydantic_ai.shared.sse import encode_chunk, encode_done, now_ms
 
-from .agent import agent
+from .agent import get_agent
 from .data_store import csv_data_store
 from .db import get_db_connection
 from .deps import Deps
@@ -44,6 +53,34 @@ app.add_middleware(
 store = InMemoryRunStore()
 
 
+async def _stream_init_error(message: str) -> AsyncIterator[bytes]:
+    """
+    Produce a TanStack-compatible SSE stream for initialization errors.
+
+    This keeps the frontend contract stable (SSE + [DONE]) even when the agent
+    can't be constructed (e.g. missing API keys).
+    """
+    run_id = uuid.uuid4().hex
+    model_name = settings.llm_model
+    yield encode_chunk(
+        ErrorStreamChunk(
+            id=run_id,
+            model=model_name,
+            timestamp=now_ms(),
+            error=ErrorObj(message=message),
+        )
+    ).encode("utf-8")
+    yield encode_chunk(
+        DoneStreamChunk(
+            id=run_id,
+            model=model_name,
+            timestamp=now_ms(),
+            finishReason="stop",
+        )
+    ).encode("utf-8")
+    yield encode_done().encode("utf-8")
+
+
 @app.post("/api/chat")
 async def chat(request: Request) -> StreamingResponse:
     """
@@ -55,6 +92,17 @@ async def chat(request: Request) -> StreamingResponse:
 
     Returns SSE stream with TanStack AI compatible chunks.
     """
+    try:
+        agent = get_agent()
+    except Exception as exc:
+        return StreamingResponse(
+            _stream_init_error(str(exc)),
+            headers={
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
     async with get_db_connection() as conn:
         deps = Deps(conn=conn)
         adapter = TanStackAIAdapter.from_request(
@@ -94,6 +142,17 @@ async def chat_continue(request: Request) -> StreamingResponse:
 
     Returns SSE stream continuing from where it left off.
     """
+    try:
+        agent = get_agent()
+    except Exception as exc:
+        return StreamingResponse(
+            _stream_init_error(str(exc)),
+            headers={
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
     async with get_db_connection() as conn:
         deps = Deps(conn=conn)
         adapter = TanStackAIAdapter.from_request(
