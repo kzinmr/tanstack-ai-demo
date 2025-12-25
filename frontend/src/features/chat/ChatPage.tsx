@@ -2,46 +2,345 @@
  * Main chat page component.
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Input } from "@base-ui/react/input";
 import { Button } from "@base-ui/react/button";
-import { useChatStream, UIMessage } from "./useChatStream";
-import { ApprovalModal } from "./ApprovalModal";
-import { ToolInputPanel } from "./ToolInputPanel";
+import { useChat } from "@tanstack/ai-react";
+import type {
+  MessagePart,
+  StreamChunk,
+  ToolCallPart,
+  ToolResultPart,
+  UIMessage,
+} from "@tanstack/ai";
+import { ApprovalModal, type ApprovalInfo } from "./ApprovalModal";
+import {
+  ToolInputPanel,
+  type ClientToolInfo,
+  type ToolResultPayload,
+} from "./ToolInputPanel";
+import { createChatConnection } from "./chatConnection";
+
+type ContinuationState = {
+  pending: boolean;
+  runId: string | null;
+  approvals: Record<string, boolean>;
+  toolResults: Record<string, unknown>;
+};
+
+function parseToolArguments(argumentsText: string): unknown {
+  if (!argumentsText) return {};
+  try {
+    return JSON.parse(argumentsText);
+  } catch {
+    return argumentsText;
+  }
+}
+
+function formatToolArguments(argumentsText: string): string {
+  if (!argumentsText) return "{}";
+  try {
+    return JSON.stringify(JSON.parse(argumentsText), null, 2);
+  } catch {
+    return argumentsText;
+  }
+}
+
+function hasPendingApproval(parts: MessagePart[]): boolean {
+  return parts.some(
+    (part) =>
+      part.type === "tool-call" &&
+      part.approval?.needsApproval &&
+      part.approval.approved === undefined
+  );
+}
+
+function extractDatasetRef(parts: MessagePart[]): string | null {
+  const pattern = /Out\[\d+\]/g;
+
+  const findFirst = (text: string): string | null => {
+    const match = text.match(pattern);
+    return match?.[0] ?? null;
+  };
+
+  for (const part of parts) {
+    if (part.type === "tool-result") {
+      const found = findFirst(part.content);
+      if (found) return found;
+    }
+  }
+
+  if (hasPendingApproval(parts)) {
+    return null;
+  }
+
+  for (const part of parts) {
+    if (part.type === "text") {
+      const found = findFirst(part.content);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
+const APPROVAL_REQUIRED_TOOLS = new Set(["execute_sql", "export_csv"]);
+
+function hasToolResult(
+  messages: UIMessage[],
+  toolCallId: string
+): boolean {
+  return messages.some((message) =>
+    message.parts.some(
+      (part) => part.type === "tool-result" && part.toolCallId === toolCallId
+    )
+  );
+}
+
+function ensureApprovalMetadata(
+  messages: UIMessage[],
+  toolCallId: string,
+  approvalId: string
+): UIMessage[] | null {
+  let changed = false;
+
+  const updated = messages.map((message) => {
+    let partsChanged = false;
+    const parts = message.parts.map((part) => {
+      if (part.type !== "tool-call") return part;
+      if (part.id !== toolCallId) return part;
+      if (part.approval) return part;
+      partsChanged = true;
+      changed = true;
+      return {
+        ...part,
+        state: "approval-requested",
+        approval: {
+          id: approvalId,
+          needsApproval: true,
+        },
+      };
+    });
+
+    return partsChanged ? { ...message, parts } : message;
+  });
+
+  return changed ? updated : null;
+}
+
+function collectPendingApprovals(
+  messages: UIMessage[],
+  manualApprovalResponses: Record<string, boolean>
+): ApprovalInfo[] {
+  const approvals: ApprovalInfo[] = [];
+
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type !== "tool-call") continue;
+      if (part.approval?.needsApproval) {
+        if (part.approval.approved !== undefined) continue;
+        approvals.push({
+          id: part.approval.id,
+          toolCallId: part.id,
+          toolName: part.name,
+          input: parseToolArguments(part.arguments),
+        });
+        continue;
+      }
+
+      if (!APPROVAL_REQUIRED_TOOLS.has(part.name)) continue;
+      if (part.state !== "input-complete") continue;
+      if (manualApprovalResponses[part.id] !== undefined) continue;
+      if (hasToolResult(messages, part.id)) continue;
+
+      approvals.push({
+        id: part.id,
+        toolCallId: part.id,
+        toolName: part.name,
+        input: parseToolArguments(part.arguments),
+      });
+    }
+  }
+
+  return approvals;
+}
 
 export function ChatPage() {
   const [inputText, setInputText] = useState("");
+  const [pendingClientTool, setPendingClientTool] =
+    useState<ClientToolInfo | null>(null);
+  const [visibleError, setVisibleError] = useState<Error | null>(null);
+  const [manualApprovalResponses, setManualApprovalResponses] = useState<
+    Record<string, boolean>
+  >({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const continuationRef = useRef<ContinuationState>({
+    pending: false,
+    runId: null,
+    approvals: {},
+    toolResults: {},
+  });
+
+  const getContinuationState = useCallback((): ContinuationState => {
+    const snapshot = {
+      pending: continuationRef.current.pending,
+      runId: continuationRef.current.runId,
+      approvals: { ...continuationRef.current.approvals },
+      toolResults: { ...continuationRef.current.toolResults },
+    };
+
+    const hasApprovals = Object.keys(snapshot.approvals).length > 0;
+    const hasToolResults = Object.keys(snapshot.toolResults).length > 0;
+    const shouldConsume =
+      snapshot.pending && !!snapshot.runId && (hasApprovals || hasToolResults);
+
+    if (shouldConsume) {
+      continuationRef.current = {
+        ...continuationRef.current,
+        pending: false,
+        approvals: {},
+        toolResults: {},
+      };
+    }
+
+    return snapshot;
+  }, []);
+
+  const connection = useMemo(
+    () => createChatConnection(getContinuationState),
+    [getContinuationState]
+  );
+
+  const handleChunk = useCallback((chunk: StreamChunk) => {
+    if (chunk.id && chunk.id !== continuationRef.current.runId) {
+      continuationRef.current.runId = chunk.id;
+    }
+
+    if (chunk.type === "tool-input-available") {
+      setPendingClientTool({
+        toolCallId: chunk.toolCallId,
+        toolName: chunk.toolName,
+        input: chunk.input,
+      });
+    }
+  }, []);
 
   const {
     messages,
-    isStreaming,
-    pendingApprovals,
-    pendingClientTool,
+    sendMessage,
+    addToolApprovalResponse,
+    addToolResult,
+    setMessages,
+    isLoading,
     error,
-    send,
-    approve,
-    deny,
-    submitClientResult,
-    clearError,
-  } = useChatStream();
+  } = useChat({
+    connection,
+    onChunk: handleChunk,
+  });
 
-  // Get first pending approval (show one at a time)
-  const currentApproval =
-    pendingApprovals.size > 0 ? pendingApprovals.values().next().value : null;
+  useEffect(() => {
+    setVisibleError(error ?? null);
+  }, [error]);
+
+  const pendingApprovals = useMemo(
+    () => collectPendingApprovals(messages, manualApprovalResponses),
+    [messages, manualApprovalResponses]
+  );
+  const currentApproval = pendingApprovals[0] ?? null;
+
+  const queueApproval = useCallback((approvalId: string, approved: boolean) => {
+    continuationRef.current = {
+      ...continuationRef.current,
+      pending: true,
+      approvals: {
+        ...continuationRef.current.approvals,
+        [approvalId]: approved,
+      },
+    };
+  }, []);
+
+  const queueToolResult = useCallback(
+    (toolCallId: string, output: Record<string, unknown>) => {
+      continuationRef.current = {
+        ...continuationRef.current,
+        pending: true,
+        toolResults: {
+          ...continuationRef.current.toolResults,
+          [toolCallId]: output,
+        },
+      };
+    },
+    []
+  );
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, pendingClientTool, currentApproval]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || isStreaming) return;
+    if (!inputText.trim() || isLoading) return;
 
     const text = inputText;
     setInputText("");
-    await send(text);
+    setPendingClientTool(null);
+    await sendMessage(text);
+  };
+
+  const handleApprove = async (approvalId: string) => {
+    const approvalInfo = pendingApprovals.find(
+      (approval) => approval.id === approvalId
+    );
+    if (approvalInfo) {
+      const updated = ensureApprovalMetadata(
+        messages,
+        approvalInfo.toolCallId,
+        approvalInfo.id
+      );
+      if (updated) {
+        setMessages(updated);
+      }
+    }
+    setManualApprovalResponses((prev) => ({ ...prev, [approvalId]: true }));
+    queueApproval(approvalId, true);
+    await addToolApprovalResponse({ id: approvalId, approved: true });
+  };
+
+  const handleDeny = async (approvalId: string) => {
+    const approvalInfo = pendingApprovals.find(
+      (approval) => approval.id === approvalId
+    );
+    if (approvalInfo) {
+      const updated = ensureApprovalMetadata(
+        messages,
+        approvalInfo.toolCallId,
+        approvalInfo.id
+      );
+      if (updated) {
+        setMessages(updated);
+      }
+    }
+    setManualApprovalResponses((prev) => ({ ...prev, [approvalId]: false }));
+    queueApproval(approvalId, false);
+    await addToolApprovalResponse({ id: approvalId, approved: false });
+  };
+
+  const handleClientResult = async (
+    toolCallId: string,
+    toolName: string,
+    payload: ToolResultPayload
+  ) => {
+    queueToolResult(toolCallId, payload.output);
+    setPendingClientTool(null);
+    await addToolResult({
+      toolCallId,
+      tool: toolName,
+      output: payload.output,
+      state: payload.state,
+      errorText: payload.errorText,
+    });
   };
 
   return (
@@ -59,12 +358,12 @@ export function ChatPage() {
       </header>
 
       {/* Error notification */}
-      {error && (
+      {visibleError && (
         <div className="max-w-4xl mx-auto w-full px-4 pt-4">
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center justify-between">
-            <span>{error}</span>
+            <span>{visibleError.message}</span>
             <button
-              onClick={clearError}
+              onClick={() => setVisibleError(null)}
               className="text-red-500 hover:text-red-700 font-bold text-lg leading-none"
             >
               &times;
@@ -95,16 +394,16 @@ export function ChatPage() {
               </div>
             </div>
           ) : (
-            messages.map((message, index) => (
-              <MessageBubble key={index} message={message} />
+            messages.map((message) => (
+              <MessageBubble key={message.id} message={message} />
             ))
           )}
 
           {/* Tool input panel */}
           <ToolInputPanel
             clientTool={pendingClientTool}
-            onComplete={submitClientResult}
-            isLoading={isStreaming}
+            onComplete={handleClientResult}
+            isLoading={isLoading}
           />
 
           {/* Scroll anchor */}
@@ -120,18 +419,18 @@ export function ChatPage() {
               value={inputText}
               onChange={(e) => setInputText(e.currentTarget.value)}
               placeholder="Type a message..."
-              disabled={isStreaming || pendingApprovals.size > 0}
+              disabled={isLoading || pendingApprovals.length > 0}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
             />
           </div>
           <Button
             type="submit"
             disabled={
-              !inputText.trim() || pendingApprovals.size > 0 || isStreaming
+              !inputText.trim() || pendingApprovals.length > 0 || isLoading
             }
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            {isStreaming && (
+            {isLoading && (
               <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                 <circle
                   className="opacity-25"
@@ -156,10 +455,10 @@ export function ChatPage() {
 
       {/* Approval modal */}
       <ApprovalModal
-        approval={currentApproval ?? null}
-        onApprove={approve}
-        onDeny={deny}
-        isLoading={isStreaming}
+        approval={currentApproval}
+        onApprove={handleApprove}
+        onDeny={handleDeny}
+        isLoading={isLoading}
       />
     </div>
   );
@@ -179,25 +478,34 @@ function MessageBubble({ message }: { message: UIMessage }) {
   } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  const datasetRef = useMemo(
+    () => extractDatasetRef(message.parts),
+    [message.parts]
+  );
+
   // Auto-preview the first Out[n] reference in assistant messages (if available).
   useEffect(() => {
     if (isUser) return;
-    if (!message.content) return;
-    if (datasetPreview || previewError) return;
-    const match = message.content.match(/Out\\[\\d+\\]/);
-    if (!match) return;
-    const dataset = match[0];
+
+    if (!datasetRef) {
+      setDatasetPreview(null);
+      setPreviewError(null);
+      return;
+    }
 
     let cancelled = false;
+    setDatasetPreview(null);
+    setPreviewError(null);
+
     (async () => {
       try {
-        const res = await fetch(`/api/data/${encodeURIComponent(dataset)}`);
+        const res = await fetch(`/api/data/${encodeURIComponent(datasetRef)}`);
         if (!res.ok) {
           throw new Error(`Failed to fetch data: ${res.statusText}`);
         }
         const data = await res.json();
         if (!cancelled) {
-          setDatasetPreview({ dataset, ...data });
+          setDatasetPreview({ dataset: datasetRef, ...data });
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Unknown error";
@@ -208,7 +516,7 @@ function MessageBubble({ message }: { message: UIMessage }) {
     return () => {
       cancelled = true;
     };
-  }, [isUser, message.content, datasetPreview, previewError]);
+  }, [datasetRef, isUser]);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -219,9 +527,13 @@ function MessageBubble({ message }: { message: UIMessage }) {
             : "bg-white border border-gray-200 text-gray-800"
         }`}
       >
-        <div className="text-sm whitespace-pre-wrap">
-          {message.content || (
+        <div className="space-y-2">
+          {message.parts.length === 0 ? (
             <span className="text-gray-400 italic">Thinking...</span>
+          ) : (
+            message.parts.map((part, index) => (
+              <MessagePartView key={`${part.type}-${index}`} part={part} />
+            ))
           )}
         </div>
 
@@ -268,6 +580,67 @@ function MessageBubble({ message }: { message: UIMessage }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function MessagePartView({ part }: { part: MessagePart }) {
+  if (part.type === "text") {
+    return <div className="text-sm whitespace-pre-wrap">{part.content}</div>;
+  }
+
+  if (part.type === "thinking") {
+    return (
+      <div className="text-xs text-gray-400 italic whitespace-pre-wrap">
+        Thinking: {part.content}
+      </div>
+    );
+  }
+
+  if (part.type === "tool-call") {
+    return <ToolCallPartView part={part} />;
+  }
+
+  if (part.type === "tool-result") {
+    return <ToolResultPartView part={part} />;
+  }
+
+  return null;
+}
+
+function ToolCallPartView({ part }: { part: ToolCallPart }) {
+  const approvalStatus = part.approval?.approved;
+  const needsApproval = part.approval?.needsApproval ?? false;
+  let statusLabel = part.state;
+
+  if (needsApproval) {
+    if (approvalStatus === undefined) {
+      statusLabel = "approval-requested";
+    } else if (approvalStatus) {
+      statusLabel = "approved";
+    } else {
+      statusLabel = "denied";
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-gray-200 bg-gray-50 p-2 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="font-medium text-gray-700">Tool: {part.name}</span>
+        <span className="text-gray-500">{statusLabel}</span>
+      </div>
+      <pre className="mt-2 whitespace-pre-wrap text-gray-600">
+        {formatToolArguments(part.arguments)}
+      </pre>
+    </div>
+  );
+}
+
+function ToolResultPartView({ part }: { part: ToolResultPart }) {
+  return (
+    <div className="rounded-md border border-gray-200 bg-white p-2 text-xs">
+      <div className="text-gray-500 mb-1">Tool result</div>
+      <div className="whitespace-pre-wrap text-gray-700">{part.content}</div>
     </div>
   );
 }
