@@ -1,0 +1,22 @@
+[project]
+name = "tanstack-ai-demo-backend"
+version = "0.1.0"
+description = "TanStack AI + pydantic-ai HITL Demo Backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic-ai",
+    "asyncpg",
+    "duckdb",
+    "pandas",
+    "python-dotenv",
+    "tanstack-pydantic-ai",
+]
+
+[tool.uv.sources]
+tanstack-pydantic-ai = { git = "https://github.com/kzinmr/tanstack-pydantic-ai.git" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
