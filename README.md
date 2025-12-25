@@ -99,12 +99,11 @@ Enter this message to experience the HITL flow:
 
 ### API Endpoints
 
-| Endpoint                  | Description                               |
-| ------------------------- | ----------------------------------------- |
-| `POST /api/chat`          | Start new chat stream                     |
-| `POST /api/chat/continue` | HITL continuation (approval/tool results) |
-| `GET /api/data/{dataset}` | Get CSV export data by dataset reference  |
-| `GET /health`             | Health check                              |
+| Endpoint                  | Description                              |
+| ------------------------- | ---------------------------------------- |
+| `POST /api/chat`          | Start/continue chat stream (HITL)        |
+| `GET /api/data/{dataset}` | Get CSV export data by dataset reference |
+| `GET /health`             | Health check                             |
 
 ### Request Examples
 
@@ -116,7 +115,7 @@ Enter this message to experience the HITL flow:
 }
 ```
 
-**Send approval:**
+**Send approval (same endpoint):**
 
 ```json
 {
@@ -125,7 +124,7 @@ Enter this message to experience the HITL flow:
 }
 ```
 
-**Send client tool result:**
+**Send client tool result (same endpoint):**
 
 ```json
 {
@@ -166,11 +165,10 @@ tanstack-ai-demo/
         ├── main.tsx
         ├── App.tsx
         └── features/chat/
-            ├── ChatPage.tsx       # Main chat UI
-            ├── useChatStream.ts   # Stream processing hook
-            ├── sse.ts             # SSE parser
-            ├── ApprovalModal.tsx  # Approval modal
-            └── ToolInputPanel.tsx # CSV export UI
+            ├── ChatPage.tsx         # Main chat UI
+            ├── chatConnection.ts    # TanStack AI connection adapter
+            ├── ApprovalModal.tsx    # Approval modal
+            └── ToolInputPanel.tsx   # CSV export UI
 
 ```
 
