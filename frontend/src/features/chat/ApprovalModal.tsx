@@ -4,12 +4,17 @@
 
 import { Dialog } from "@base-ui/react/dialog";
 import { Button } from "@base-ui/react/button";
-import { ApprovalInfo } from "./useChatStream";
+export interface ApprovalInfo {
+  id: string;
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+}
 
 interface ApprovalModalProps {
   approval: ApprovalInfo | null;
-  onApprove: (toolCallId: string) => void;
-  onDeny: (toolCallId: string) => void;
+  onApprove: (approvalId: string) => void;
+  onDeny: (approvalId: string) => void;
   isLoading: boolean;
 }
 
@@ -31,7 +36,7 @@ export function ApprovalModal({
   };
 
   return (
-    <Dialog.Root open={!!approval} onOpenChange={(open) => !open && onDeny(approval.toolCallId)}>
+    <Dialog.Root open={!!approval} onOpenChange={() => {}}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 bg-black/50 z-40" />
         <Dialog.Popup className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl z-50 w-full max-w-lg max-h-[90vh] overflow-hidden">
@@ -55,14 +60,14 @@ export function ApprovalModal({
           </div>
           <div className="px-6 py-4 border-t flex justify-end gap-3">
             <Button
-              onClick={() => onDeny(approval.toolCallId)}
+              onClick={() => onDeny(approval.id)}
               disabled={isLoading}
               className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Deny
             </Button>
             <Button
-              onClick={() => onApprove(approval.toolCallId)}
+              onClick={() => onApprove(approval.id)}
               disabled={isLoading}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
             >
