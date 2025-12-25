@@ -119,5 +119,21 @@ class DataStore:
             del self._store[ref]
 
 
-# Global instance
-csv_data_store = DataStore()
+def get_csv_data_store() -> DataStore:
+    """Get the CSV data store with settings-based TTL."""
+    from .settings import get_settings
+
+    settings = get_settings()
+    return DataStore(ttl_minutes=settings.csv_data_ttl_minutes)
+
+
+# Global instance (lazy initialization to avoid circular imports)
+_csv_data_store: DataStore | None = None
+
+
+def csv_data_store() -> DataStore:
+    """Get or create the global CSV data store."""
+    global _csv_data_store
+    if _csv_data_store is None:
+        _csv_data_store = get_csv_data_store()
+    return _csv_data_store

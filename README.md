@@ -70,7 +70,7 @@ cp .env.example .env
 uv sync
 
 # Start server
-uv run uvicorn src.main:app --reload --port 8000
+uv run uvicorn src.backend.main:app --reload --port 8000
 ```
 
 ### 3. Frontend Setup

@@ -6,7 +6,6 @@ Based on pydantic-ai sql-gen example with HITL support.
 
 from __future__ import annotations
 
-import os
 from datetime import date
 from typing import Any
 
@@ -14,17 +13,15 @@ from pydantic_ai import Agent, DeferredToolRequests, ModelRetry, RunContext, for
 
 from .db import DB_SCHEMA, SQL_EXAMPLES
 from .deps import Deps
+from .settings import get_settings
 from .tools import register_tools
 
-
-def get_model() -> str:
-    """Get the model from environment or use default."""
-    return os.getenv("LLM_MODEL", "google-gla:gemini-2.5-flash")
-
+# Get settings
+settings = get_settings()
 
 # Create the agent
 agent: Agent[Deps, str | DeferredToolRequests] = Agent(
-    get_model(),
+    settings.llm_model,
     deps_type=Deps,
     output_type=[str, DeferredToolRequests],
 )

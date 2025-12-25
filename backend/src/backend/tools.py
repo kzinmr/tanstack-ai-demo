@@ -22,6 +22,7 @@ from pydantic_ai import CallDeferred, RunContext
 from .data_store import csv_data_store
 from .db import DB_SCHEMA
 from .deps import Deps
+from .settings import get_settings
 
 if TYPE_CHECKING:
     from pydantic_ai import Agent
@@ -29,6 +30,8 @@ if TYPE_CHECKING:
 
 def register_tools(agent: "Agent[Deps, ...]") -> None:
     """Register all tools with the agent."""
+
+    settings = get_settings()
 
     @agent.tool
     async def preview_schema(ctx: RunContext[Deps]) -> str:
@@ -60,7 +63,7 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
             return "Error: Only SELECT queries are allowed for safety."
 
         # Enforce LIMIT for safety - add if not present
-        max_limit = 1000
+        max_limit = settings.sql_max_limit
         if "LIMIT" not in sql_upper:
             sql = f"{sql.rstrip().rstrip(';')} LIMIT {max_limit}"
         else:
@@ -146,7 +149,7 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
         original_row_count = len(df)
 
         # Limit rows for safety
-        max_rows = 1000
+        max_rows = settings.sql_max_limit
         if len(df) > max_rows:
             df = df.head(max_rows)
 
@@ -165,7 +168,7 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
         # by the tanstack-pydantic-ai adapter. The frontend will receive
         # the dataset reference in tool-input-available.input and can
         # fetch the actual data from /api/data/{dataset}
-        csv_data_store.store(
+        csv_data_store().store(
             dataset_ref=dataset,
             rows=rows,
             columns=columns,

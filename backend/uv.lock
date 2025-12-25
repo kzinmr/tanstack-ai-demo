@@ -251,7 +251,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "pandas" },
     { name = "pydantic-ai" },
-    { name = "python-dotenv" },
+    { name = "pydantic-settings" },
     { name = "tanstack-pydantic-ai" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -263,7 +263,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "pandas" },
     { name = "pydantic-ai" },
-    { name = "python-dotenv" },
+    { name = "pydantic-settings" },
     { name = "tanstack-pydantic-ai", git = "https://github.com/kzinmr/tanstack-pydantic-ai.git" },
     { name = "uvicorn", extras = ["standard"] },
 ]

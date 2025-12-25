@@ -11,10 +11,10 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "pydantic-ai",
+    "pydantic-settings",
     "asyncpg",
     "duckdb",
     "pandas",
-    "python-dotenv",
     "tanstack-pydantic-ai",
 ]
 

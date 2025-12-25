@@ -6,12 +6,12 @@ Based on pydantic-ai sql-gen example.
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any
 
 import asyncpg
+
+from .settings import get_settings
 
 # Database schema for the records table
 DB_SCHEMA = """
@@ -60,11 +60,9 @@ SQL_EXAMPLES = [
 
 
 def get_database_url() -> str:
-    """Get database URL from environment."""
-    return os.getenv(
-        "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:54320/pydantic_ai_sql_gen",
-    )
+    """Get database URL from settings."""
+    settings = get_settings()
+    return str(settings.database_url)
 
 
 @asynccontextmanager
@@ -197,18 +195,10 @@ async def _insert_sample_data(conn: asyncpg.Connection) -> None:
 
 @asynccontextmanager
 async def get_db_connection() -> AsyncGenerator[asyncpg.Connection, None]:
-    """Get a database connection using environment configuration."""
-    db_url = get_database_url()
-    # Parse DATABASE_URL to extract server DSN and database name
-    # Format: postgresql://user:pass@host:port/database
-    if "/" in db_url.rsplit("@", 1)[-1]:
-        # Has database name in URL
-        parts = db_url.rsplit("/", 1)
-        server_dsn = parts[0]
-        database = parts[1].split("?")[0]  # Remove query params if any
-    else:
-        server_dsn = db_url
-        database = "pydantic_ai_sql_gen"
-
-    async with database_connect(server_dsn=server_dsn, database=database) as conn:
+    """Get a database connection using settings configuration."""
+    settings = get_settings()
+    async with database_connect(
+        server_dsn=settings.database_server_dsn,
+        database=settings.database_name,
+    ) as conn:
         yield conn

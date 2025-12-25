@@ -9,9 +9,6 @@ This module provides:
 
 from __future__ import annotations
 
-import os
-
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -22,9 +19,10 @@ from .agent import agent
 from .data_store import csv_data_store
 from .db import get_db_connection
 from .deps import Deps
+from .settings import get_settings
 
-# Load environment variables
-load_dotenv()
+# Get settings
+settings = get_settings()
 
 # Create FastAPI app
 app = FastAPI(
@@ -36,10 +34,7 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -129,7 +124,7 @@ async def get_csv_data(dataset: str) -> dict:
     Returns:
         JSON with rows, columns, and row count information
     """
-    data = csv_data_store.get(dataset)
+    data = csv_data_store().get(dataset)
     if data is None:
         raise HTTPException(status_code=404, detail="Data not found or expired")
 
@@ -146,7 +141,7 @@ async def health() -> dict:
     """Health check endpoint."""
     return {
         "status": "ok",
-        "model": os.getenv("LLM_MODEL", "google-gla:gemini-2.5-flash"),
+        "model": settings.llm_model,
     }
 
 
