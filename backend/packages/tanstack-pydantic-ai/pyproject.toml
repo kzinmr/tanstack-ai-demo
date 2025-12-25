@@ -1,0 +1,20 @@
+[build-system]
+requires = ["uv_build>=0.7.5,<0.8"]
+build-backend = "uv_build"
+
+[project]
+name = "tanstack-pydantic-ai"
+version = "0.1.0"
+description = "TanStack AI compatible SSE backend with pydantic-ai"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic",
+  "pydantic-ai",
+]
+
+[project.optional-dependencies]
+server = [
+  "fastapi",
+  "uvicorn",
+]

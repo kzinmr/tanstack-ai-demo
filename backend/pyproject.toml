@@ -18,5 +18,8 @@ dependencies = [
     "tanstack-pydantic-ai",
 ]
 
+[tool.uv.workspace]
+members = ["packages/*"]
+
 [tool.uv.sources]
-tanstack-pydantic-ai = { git = "https://github.com/kzinmr/tanstack-pydantic-ai.git" }
+tanstack-pydantic-ai = { workspace = true }
