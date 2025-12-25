@@ -4,11 +4,26 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { Button } from "@base-ui/react/button";
-import { ClientToolInfo } from "./useChatStream";
+
+export interface ClientToolInfo {
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+}
+
+export interface ToolResultPayload {
+  output: Record<string, unknown>;
+  state?: "output-available" | "output-error";
+  errorText?: string;
+}
 
 interface ToolInputPanelProps {
   clientTool: ClientToolInfo | null;
-  onComplete: (toolCallId: string, result: Record<string, unknown>) => void;
+  onComplete: (
+    toolCallId: string,
+    toolName: string,
+    payload: ToolResultPayload
+  ) => void;
   isLoading: boolean;
 }
 
@@ -181,24 +196,27 @@ export function ToolInputPanel({
 
   const handleExecute = () => {
     if (!csvData) {
-      onComplete(clientTool.toolCallId, {
-        error: "No data available",
-        success: false,
+      const message = "No data available";
+      onComplete(clientTool.toolCallId, clientTool.toolName, {
+        output: { error: message, success: false },
+        state: "output-error",
+        errorText: message,
       });
       return;
     }
 
     try {
       const result = downloadCSV(csvData.rows, csvData.columns, "export.csv");
-      onComplete(clientTool.toolCallId, {
-        ...result,
-        success: true,
+      onComplete(clientTool.toolCallId, clientTool.toolName, {
+        output: { ...result, success: true },
+        state: "output-available",
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unknown error";
-      onComplete(clientTool.toolCallId, {
-        error: message,
-        success: false,
+      onComplete(clientTool.toolCallId, clientTool.toolName, {
+        output: { error: message, success: false },
+        state: "output-error",
+        errorText: message,
       });
     }
   };
