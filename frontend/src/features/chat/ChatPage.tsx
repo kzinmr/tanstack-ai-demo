@@ -173,6 +173,45 @@ export function ChatPage() {
  */
 function MessageBubble({ message }: { message: UIMessage }) {
   const isUser = message.role === "user";
+  const [datasetPreview, setDatasetPreview] = useState<{
+    dataset: string;
+    rows: Record<string, unknown>[];
+    columns: string[];
+    original_row_count: number;
+    exported_row_count: number;
+  } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Auto-preview the first Out[n] reference in assistant messages (if available).
+  useEffect(() => {
+    if (isUser) return;
+    if (!message.content) return;
+    if (datasetPreview || previewError) return;
+    const match = message.content.match(/Out\\[\\d+\\]/);
+    if (!match) return;
+    const dataset = match[0];
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/data/${encodeURIComponent(dataset)}`);
+        if (!res.ok) {
+          throw new Error(`Failed to fetch data: ${res.statusText}`);
+        }
+        const data = await res.json();
+        if (!cancelled) {
+          setDatasetPreview({ dataset, ...data });
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        if (!cancelled) setPreviewError(msg);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isUser, message.content, datasetPreview, previewError]);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -188,6 +227,45 @@ function MessageBubble({ message }: { message: UIMessage }) {
             <span className="text-gray-400 italic">Thinking...</span>
           )}
         </div>
+
+        {!isUser && datasetPreview && (
+          <div className="mt-3 bg-gray-50 border border-gray-200 rounded p-3 overflow-auto">
+            <div className="text-xs text-gray-600 mb-2">
+              {datasetPreview.dataset} プレビュー（{datasetPreview.exported_row_count} 行 /{" "}
+              {datasetPreview.columns.length} 列）
+            </div>
+            <table className="text-xs w-full border-collapse">
+              <thead>
+                <tr>
+                  {datasetPreview.columns.map((c) => (
+                    <th
+                      key={c}
+                      className="text-left border-b border-gray-200 pr-3 pb-1 font-medium"
+                    >
+                      {c}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {datasetPreview.rows.slice(0, 5).map((row, i) => (
+                  <tr key={i}>
+                    {datasetPreview.columns.map((c) => (
+                      <td key={c} className="pr-3 py-1 border-b border-gray-100">
+                        {String((row as any)[c] ?? "")}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!isUser && previewError && (
+          <div className="mt-3 text-xs text-gray-500">
+            データプレビューを取得できませんでした: {previewError}
+          </div>
+        )}
       </div>
     </div>
   );

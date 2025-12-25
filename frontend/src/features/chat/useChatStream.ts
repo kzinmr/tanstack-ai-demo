@@ -34,7 +34,7 @@ export interface ClientToolInfo {
   toolCallId: string;
   toolName: string;
   input: {
-    dataset?: string;  // Dataset reference like "Out[1]"
+    dataset?: string; // Dataset reference like "Out[1]"
     [key: string]: unknown;
   };
 }
@@ -77,6 +77,8 @@ export function useChatStream(
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
+  // Keep an always-fresh run_id (avoid stale closures during streaming/approvals)
+  const runIdRef = useRef<string | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState<
     Map<string, ApprovalInfo>
   >(new Map());
@@ -90,100 +92,114 @@ export function useChatStream(
   /**
    * Process a stream of chunks.
    */
-  const processStream = useCallback(
-    async (response: Response) => {
-      let currentContent = "";
+  const processStream = useCallback(async (response: Response) => {
+    let currentContent = "";
 
-      for await (const chunk of sseJsonIterator(response)) {
-        const typedChunk = chunk as StreamChunk;
+    for await (const chunk of sseJsonIterator(response)) {
+      const typedChunk = chunk as StreamChunk;
 
-        // Store run_id from first chunk
-        if (typedChunk.id && !runId) {
-          setRunId(typedChunk.id);
-        }
+      // Store/refresh run_id from stream chunks.
+      // NOTE: run_id is per-run (per /api/chat call). The UI must always
+      // track the latest run_id, otherwise approvals/tool_results may be sent
+      // to a previous run and pydantic-ai will error.
+      if (typedChunk.id && typedChunk.id !== runIdRef.current) {
+        runIdRef.current = typedChunk.id;
+        setRunId(typedChunk.id);
+      }
 
-        switch (typedChunk.type) {
-          case "content": {
-            currentContent = typedChunk.content;
-            setMessages((prev) => {
-              const newMessages = [...prev];
-              const lastMessage = newMessages[newMessages.length - 1];
-              if (lastMessage?.role === "assistant") {
-                newMessages[newMessages.length - 1] = {
-                  role: "assistant",
-                  content: currentContent,
-                };
-              }
-              return newMessages;
-            });
-            break;
-          }
-
-          case "tool_call": {
-            // Just log tool calls for now
-            console.log("Tool call:", typedChunk.toolCall);
-            break;
-          }
-
-          case "tool_result": {
-            // Tool result received
-            console.log("Tool result:", typedChunk.toolCallId, typedChunk.content);
-            break;
-          }
-
-          case "approval-requested": {
-            const approvalChunk = typedChunk as ApprovalRequestedStreamChunk;
-            setPendingApprovals((prev) => {
-              const next = new Map(prev);
-              next.set(approvalChunk.toolCallId, {
-                toolCallId: approvalChunk.toolCallId,
-                toolName: approvalChunk.toolName,
-                input: approvalChunk.input,
-              });
-              return next;
-            });
-            break;
-          }
-
-          case "tool-input-available": {
-            const inputChunk = typedChunk as ToolInputAvailableStreamChunk;
-            setPendingClientTool({
-              toolCallId: inputChunk.toolCallId,
-              toolName: inputChunk.toolName,
-              input: inputChunk.input as ClientToolInfo["input"],
-            });
-            break;
-          }
-
-          case "error": {
-            setError(typedChunk.error.message);
-            break;
-          }
-
-          case "done": {
-            // Stream finished
-            if (currentContent) {
-              messagesRef.current.push({
+      switch (typedChunk.type) {
+        case "content": {
+          currentContent = typedChunk.content;
+          setMessages((prev) => {
+            const newMessages = [...prev];
+            const lastMessage = newMessages[newMessages.length - 1];
+            if (lastMessage?.role === "assistant") {
+              newMessages[newMessages.length - 1] = {
                 role: "assistant",
                 content: currentContent,
-              });
-            } else {
-              // Remove empty assistant message (the "Thinking..." placeholder)
-              setMessages((prev) => {
-                const lastMessage = prev[prev.length - 1];
-                if (lastMessage?.role === "assistant" && !lastMessage.content) {
-                  return prev.slice(0, -1);
-                }
-                return prev;
-              });
+              };
             }
-            break;
+            return newMessages;
+          });
+          break;
+        }
+
+        case "tool_call": {
+          // Just log tool calls for now
+          console.log("Tool call:", typedChunk.toolCall);
+          break;
+        }
+
+        case "tool_result": {
+          // Tool result received
+          console.log(
+            "Tool result:",
+            typedChunk.toolCallId,
+            typedChunk.content
+          );
+          // Show tool results in the chat UI so dataset refs like Out[n] can be
+          // understood (and previewed) by the user. Do NOT add to messagesRef,
+          // since the backend persists tool messages separately.
+          if (typedChunk.content) {
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: typedChunk.content },
+            ]);
           }
+          break;
+        }
+
+        case "approval-requested": {
+          const approvalChunk = typedChunk as ApprovalRequestedStreamChunk;
+          setPendingApprovals((prev) => {
+            const next = new Map(prev);
+            next.set(approvalChunk.toolCallId, {
+              toolCallId: approvalChunk.toolCallId,
+              toolName: approvalChunk.toolName,
+              input: approvalChunk.input,
+            });
+            return next;
+          });
+          break;
+        }
+
+        case "tool-input-available": {
+          const inputChunk = typedChunk as ToolInputAvailableStreamChunk;
+          setPendingClientTool({
+            toolCallId: inputChunk.toolCallId,
+            toolName: inputChunk.toolName,
+            input: inputChunk.input as ClientToolInfo["input"],
+          });
+          break;
+        }
+
+        case "error": {
+          setError(typedChunk.error.message);
+          break;
+        }
+
+        case "done": {
+          // Stream finished
+          if (currentContent) {
+            messagesRef.current.push({
+              role: "assistant",
+              content: currentContent,
+            });
+          } else {
+            // Remove empty assistant message (the "Thinking..." placeholder)
+            setMessages((prev) => {
+              const lastMessage = prev[prev.length - 1];
+              if (lastMessage?.role === "assistant" && !lastMessage.content) {
+                return prev.slice(0, -1);
+              }
+              return prev;
+            });
+          }
+          break;
         }
       }
-    },
-    [runId]
-  );
+    }
+  }, []);
 
   /**
    * Send a new message.
@@ -194,6 +210,12 @@ export function useChatStream(
 
       setIsStreaming(true);
       setError(null);
+      // New /api/chat starts a new run. Clear per-run state so continuation
+      // always targets the correct run_id.
+      runIdRef.current = null;
+      setRunId(null);
+      setPendingApprovals(new Map());
+      setPendingClientTool(null);
 
       // Add user message
       const userMessage: UIMessage = { role: "user", content: text };
@@ -234,7 +256,8 @@ export function useChatStream(
    */
   const approve = useCallback(
     async (toolCallId: string) => {
-      if (!runId) {
+      const currentRunId = runIdRef.current;
+      if (!currentRunId) {
         setError("No run_id available for approval");
         return;
       }
@@ -257,7 +280,7 @@ export function useChatStream(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            run_id: runId,
+            run_id: currentRunId,
             approvals: { [toolCallId]: true },
           }),
         });
@@ -275,7 +298,7 @@ export function useChatStream(
         setIsStreaming(false);
       }
     },
-    [apiBase, runId, processStream]
+    [apiBase, processStream]
   );
 
   /**
@@ -283,7 +306,8 @@ export function useChatStream(
    */
   const deny = useCallback(
     async (toolCallId: string) => {
-      if (!runId) {
+      const currentRunId = runIdRef.current;
+      if (!currentRunId) {
         setError("No run_id available for denial");
         return;
       }
@@ -306,7 +330,7 @@ export function useChatStream(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            run_id: runId,
+            run_id: currentRunId,
             approvals: { [toolCallId]: false },
           }),
         });
@@ -324,7 +348,7 @@ export function useChatStream(
         setIsStreaming(false);
       }
     },
-    [apiBase, runId, processStream]
+    [apiBase, processStream]
   );
 
   /**
@@ -332,7 +356,8 @@ export function useChatStream(
    */
   const submitClientResult = useCallback(
     async (toolCallId: string, result: Record<string, unknown>) => {
-      if (!runId) {
+      const currentRunId = runIdRef.current;
+      if (!currentRunId) {
         setError("No run_id available for tool result");
         return;
       }
@@ -351,7 +376,7 @@ export function useChatStream(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            run_id: runId,
+            run_id: currentRunId,
             tool_results: { [toolCallId]: result },
           }),
         });
@@ -369,7 +394,7 @@ export function useChatStream(
         setIsStreaming(false);
       }
     },
-    [apiBase, runId, processStream]
+    [apiBase, processStream]
   );
 
   const clearError = useCallback(() => {

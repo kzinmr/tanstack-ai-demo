@@ -2,7 +2,7 @@
  * Panel for client-side tool execution (e.g., CSV export).
  */
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Button } from "@base-ui/react/button";
 import { ClientToolInfo } from "./useChatStream";
 
@@ -113,11 +113,44 @@ export function ToolInputPanel({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isFetching, setIsFetching] = useState(false);
 
+  const datasetRef = useMemo((): string | null => {
+    if (!clientTool?.input) return null;
+    const raw = clientTool.input as unknown;
+
+    // Some backends may send the args as a JSON string.
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      // Raw Out[n]
+      if (/^Out\[\d+\]$/.test(trimmed)) return trimmed;
+      // JSON string { "dataset": "Out[1]" }
+      try {
+        const parsed = JSON.parse(trimmed) as any;
+        if (parsed && typeof parsed.dataset === "string") return parsed.dataset;
+      } catch {
+        // ignore
+      }
+      return null;
+    }
+
+    if (typeof raw === "object" && raw !== null) {
+      const obj: any = raw;
+      if (typeof obj.dataset === "string") return obj.dataset;
+      // In case nested shapes appear, try common fallbacks.
+      if (obj.input && typeof obj.input.dataset === "string") return obj.input.dataset;
+    }
+
+    return null;
+  }, [clientTool?.toolCallId, clientTool?.input]);
+
   // Fetch CSV data when clientTool changes
   useEffect(() => {
-    if (!clientTool?.input.dataset) {
+    if (!datasetRef) {
       setCsvData(null);
-      setFetchError(null);
+      setFetchError(
+        clientTool
+          ? "Missing dataset reference in tool input"
+          : null
+      );
       return;
     }
 
@@ -125,7 +158,7 @@ export function ToolInputPanel({
       setIsFetching(true);
       setFetchError(null);
       try {
-        const dataset = clientTool.input.dataset;
+        const dataset = datasetRef;
         const response = await fetch(
           `/api/data/${encodeURIComponent(dataset!)}`
         );
@@ -143,7 +176,7 @@ export function ToolInputPanel({
     };
 
     fetchData();
-  }, [clientTool?.toolCallId, clientTool?.input.dataset]);
+  }, [clientTool?.toolCallId, datasetRef]);
 
   if (!clientTool) return null;
 
