@@ -195,6 +195,9 @@ tanstack-ai-demo/
 
 - [pydantic-ai Deferred Tools](https://ai.pydantic.dev/deferred-tools/)
 - [TanStack AI Docs](https://tanstack.com/ai/latest/docs)
+- Related pydantic-ai agent examples:
+  - [sql-gen](https://ai.pydantic.dev/examples/sql-gen/)
+  - [data-analyst](https://ai.pydantic.dev/examples/data-analyst/)
 
 ## License
 
