@@ -10,10 +10,11 @@ import type {
   MessagePart,
   StreamChunk,
   ToolCallPart,
+  ToolCallState,
   ToolResultPart,
   UIMessage,
 } from "@tanstack/ai";
-import { ApprovalModal, type ApprovalInfo } from "./ApprovalModal";
+import { ApprovalCard, type ApprovalInfo } from "./ApprovalCard";
 import {
   ToolInputPanel,
   type ClientToolInfo,
@@ -48,10 +49,17 @@ function formatToolArguments(argumentsText: string): string {
 
 function hasPendingApproval(parts: MessagePart[]): boolean {
   return parts.some(
-    (part) =>
-      part.type === "tool-call" &&
-      part.approval?.needsApproval &&
-      part.approval.approved === undefined
+    (part) => {
+      if (part.type !== "tool-call") return false;
+      if (part.approval?.needsApproval && part.approval.approved === undefined) {
+        return true;
+      }
+      return (
+        !part.approval &&
+        part.state === "input-complete" &&
+        APPROVAL_REQUIRED_TOOLS.has(part.name)
+      );
+    }
   );
 }
 
@@ -114,7 +122,7 @@ function ensureApprovalMetadata(
       changed = true;
       return {
         ...part,
-        state: "approval-requested",
+        state: "approval-requested" as ToolCallState,
         approval: {
           id: approvalId,
           needsApproval: true,
@@ -248,6 +256,13 @@ export function ChatPage() {
     [messages, manualApprovalResponses]
   );
   const currentApproval = pendingApprovals[0] ?? null;
+  const pendingApprovalByToolCallId = useMemo(() => {
+    const lookup: Record<string, ApprovalInfo> = {};
+    for (const approval of pendingApprovals) {
+      lookup[approval.toolCallId] = approval;
+    }
+    return lookup;
+  }, [pendingApprovals]);
 
   const queueApproval = useCallback((approvalId: string, approved: boolean) => {
     continuationRef.current = {
@@ -395,7 +410,14 @@ export function ChatPage() {
             </div>
           ) : (
             messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
+              <MessageBubble
+                key={message.id}
+                message={message}
+                pendingApprovalByToolCallId={pendingApprovalByToolCallId}
+                onApprove={handleApprove}
+                onDeny={handleDeny}
+                isLoading={isLoading}
+              />
             ))
           )}
 
@@ -453,13 +475,6 @@ export function ChatPage() {
         </form>
       </footer>
 
-      {/* Approval modal */}
-      <ApprovalModal
-        approval={currentApproval}
-        onApprove={handleApprove}
-        onDeny={handleDeny}
-        isLoading={isLoading}
-      />
     </div>
   );
 }
@@ -467,7 +482,21 @@ export function ChatPage() {
 /**
  * Message bubble component.
  */
-function MessageBubble({ message }: { message: UIMessage }) {
+interface MessageBubbleProps {
+  message: UIMessage;
+  pendingApprovalByToolCallId: Record<string, ApprovalInfo>;
+  onApprove?: (approvalId: string) => void;
+  onDeny?: (approvalId: string) => void;
+  isLoading?: boolean;
+}
+
+function MessageBubble({
+  message,
+  pendingApprovalByToolCallId,
+  onApprove,
+  onDeny,
+  isLoading,
+}: MessageBubbleProps) {
   const isUser = message.role === "user";
   const [datasetPreview, setDatasetPreview] = useState<{
     dataset: string;
@@ -532,7 +561,14 @@ function MessageBubble({ message }: { message: UIMessage }) {
             <span className="text-gray-400 italic">Thinking...</span>
           ) : (
             message.parts.map((part, index) => (
-              <MessagePartView key={`${part.type}-${index}`} part={part} />
+              <MessagePartView
+                key={`${part.type}-${index}`}
+                part={part}
+                pendingApprovalByToolCallId={pendingApprovalByToolCallId}
+                onApprove={onApprove}
+                onDeny={onDeny}
+                isLoading={isLoading}
+              />
             ))
           )}
         </div>
@@ -584,7 +620,21 @@ function MessageBubble({ message }: { message: UIMessage }) {
   );
 }
 
-function MessagePartView({ part }: { part: MessagePart }) {
+interface MessagePartViewProps {
+  part: MessagePart;
+  pendingApprovalByToolCallId: Record<string, ApprovalInfo>;
+  onApprove?: (approvalId: string) => void;
+  onDeny?: (approvalId: string) => void;
+  isLoading?: boolean;
+}
+
+function MessagePartView({
+  part,
+  pendingApprovalByToolCallId,
+  onApprove,
+  onDeny,
+  isLoading,
+}: MessagePartViewProps) {
   if (part.type === "text") {
     return <div className="text-sm whitespace-pre-wrap">{part.content}</div>;
   }
@@ -598,7 +648,16 @@ function MessagePartView({ part }: { part: MessagePart }) {
   }
 
   if (part.type === "tool-call") {
-    return <ToolCallPartView part={part} />;
+    const pendingApproval = pendingApprovalByToolCallId[part.id];
+    return (
+      <ToolCallPartView
+        part={part}
+        pendingApproval={pendingApproval}
+        onApprove={onApprove}
+        onDeny={onDeny}
+        isLoading={isLoading}
+      />
+    );
   }
 
   if (part.type === "tool-result") {
@@ -608,12 +667,33 @@ function MessagePartView({ part }: { part: MessagePart }) {
   return null;
 }
 
-function ToolCallPartView({ part }: { part: ToolCallPart }) {
+interface ToolCallPartViewProps {
+  part: ToolCallPart;
+  pendingApproval?: ApprovalInfo;
+  onApprove?: (approvalId: string) => void;
+  onDeny?: (approvalId: string) => void;
+  isLoading?: boolean;
+}
+
+function ToolCallPartView({
+  part,
+  pendingApproval,
+  onApprove,
+  onDeny,
+  isLoading = false,
+}: ToolCallPartViewProps) {
   const approvalStatus = part.approval?.approved;
   const needsApproval = part.approval?.needsApproval ?? false;
-  let statusLabel = part.state;
+  const isPendingApproval =
+    (needsApproval && approvalStatus === undefined) || !!pendingApproval;
+  const approvalId = pendingApproval?.id ?? part.approval?.id;
+  const approvalInput =
+    pendingApproval?.input ?? parseToolArguments(part.arguments);
+  const hasApprovalRequest = needsApproval || !!pendingApproval;
 
-  if (needsApproval) {
+  // Display label for the tool call state (may differ from ToolCallState enum for UI purposes)
+  let statusLabel: string = part.state;
+  if (hasApprovalRequest) {
     if (approvalStatus === undefined) {
       statusLabel = "approval-requested";
     } else if (approvalStatus) {
@@ -624,14 +704,39 @@ function ToolCallPartView({ part }: { part: ToolCallPart }) {
   }
 
   return (
-    <div className="rounded-md border border-gray-200 bg-gray-50 p-2 text-xs">
-      <div className="flex items-center justify-between">
-        <span className="font-medium text-gray-700">Tool: {part.name}</span>
-        <span className="text-gray-500">{statusLabel}</span>
+    <div>
+      <div className="rounded-md border border-gray-200 bg-gray-50 p-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="font-medium text-gray-700">Tool: {part.name}</span>
+          <span
+            className={`${
+              isPendingApproval
+                ? "text-amber-600 font-medium"
+                : approvalStatus === false
+                  ? "text-red-500"
+                  : approvalStatus === true
+                    ? "text-green-600"
+                    : "text-gray-500"
+            }`}
+          >
+            {statusLabel}
+          </span>
+        </div>
+        <pre className="mt-2 whitespace-pre-wrap text-gray-600">
+          {formatToolArguments(part.arguments)}
+        </pre>
       </div>
-      <pre className="mt-2 whitespace-pre-wrap text-gray-600">
-        {formatToolArguments(part.arguments)}
-      </pre>
+
+      {isPendingApproval && onApprove && onDeny && approvalId && (
+        <ApprovalCard
+          approvalId={approvalId}
+          toolName={part.name}
+          input={approvalInput}
+          onApprove={onApprove}
+          onDeny={onDeny}
+          isLoading={isLoading}
+        />
+      )}
     </div>
   );
 }
