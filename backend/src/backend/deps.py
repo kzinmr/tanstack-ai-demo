@@ -12,6 +12,8 @@ import asyncpg
 import pandas as pd
 from pydantic_ai import ModelRetry
 
+from .data_store import next_out_ref
+
 
 @dataclass
 class Deps:
@@ -36,7 +38,7 @@ class Deps:
         Returns:
             Reference string like "Out[1]"
         """
-        ref = f"Out[{len(self.output) + 1}]"
+        ref = next_out_ref()  # Use global counter for unique refs across runs
         self.output[ref] = df
         return ref
 

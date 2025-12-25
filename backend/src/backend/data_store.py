@@ -16,6 +16,24 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+# Global counter for unique Out[n] references across all runs
+_global_out_counter: int = 0
+
+
+def next_out_ref() -> str:
+    """
+    Generate a globally unique Out[n] reference.
+
+    This ensures that Out references are unique across all runs/requests,
+    preventing collisions in the global csv_data_store.
+
+    Returns:
+        Reference string like "Out[1]", "Out[2]", etc.
+    """
+    global _global_out_counter
+    _global_out_counter += 1
+    return f"Out[{_global_out_counter}]"
+
 
 @dataclass
 class StoredData:
