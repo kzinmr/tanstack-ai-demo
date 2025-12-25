@@ -53,7 +53,6 @@ if TYPE_CHECKING:
         FunctionToolResultEvent,
     )
     from pydantic_ai.messages import (
-        FilePart,
         PartDeltaEvent,
         PartStartEvent,
         TextPart,
@@ -315,7 +314,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
             toolCallId=tool_call_id,
             toolName=tool_name,
             input=args,
-            approval=ApprovalObj(id=uuid.uuid4().hex),
+            approval=ApprovalObj(id=tool_call_id),
         )
 
     async def handle_deferred_input(
