@@ -3,9 +3,8 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { Input } from "baseui/input";
-import { Button } from "baseui/button";
-import { Notification, KIND } from "baseui/notification";
+import { Input } from "@base-ui/react/input";
+import { Button } from "@base-ui/react/button";
 import { useChatStream, UIMessage } from "./useChatStream";
 import { ApprovalModal } from "./ApprovalModal";
 import { ToolInputPanel } from "./ToolInputPanel";
@@ -64,13 +63,15 @@ export function ChatPage() {
       {/* Error notification */}
       {error && (
         <div className="max-w-4xl mx-auto w-full px-4 pt-4">
-          <Notification
-            kind={KIND.negative}
-            onClose={clearError}
-            closeable
-          >
-            {error}
-          </Notification>
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={clearError}
+              className="text-red-500 hover:text-red-700 font-bold text-lg leading-none"
+            >
+              &times;
+            </button>
+          </div>
         </div>
       )}
 
@@ -125,15 +126,32 @@ export function ChatPage() {
               onChange={(e) => setInputText(e.currentTarget.value)}
               placeholder="Type a message..."
               disabled={isStreaming || pendingApprovals.size > 0}
-              clearable
-              clearOnEscape
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
             />
           </div>
           <Button
             type="submit"
-            isLoading={isStreaming}
-            disabled={!inputText.trim() || pendingApprovals.size > 0}
+            disabled={!inputText.trim() || pendingApprovals.size > 0 || isStreaming}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
           >
+            {isStreaming && (
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  fill="none"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+            )}
             Send
           </Button>
         </form>

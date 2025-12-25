@@ -3,8 +3,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { Button } from "baseui/button";
-import { Spinner } from "baseui/spinner";
+import { Button } from "@base-ui/react/button";
 import { ClientToolInfo } from "./useChatStream";
 
 interface ToolInputPanelProps {
@@ -18,6 +17,33 @@ interface CSVData {
   columns: string[];
   original_row_count: number;
   exported_row_count: number;
+}
+
+/**
+ * Spinner component for loading states.
+ */
+function Spinner({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+      />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+      />
+    </svg>
+  );
 }
 
 /**
@@ -100,7 +126,9 @@ export function ToolInputPanel({
       setFetchError(null);
       try {
         const dataset = clientTool.input.dataset;
-        const response = await fetch(`/api/data/${encodeURIComponent(dataset!)}`);
+        const response = await fetch(
+          `/api/data/${encodeURIComponent(dataset!)}`
+        );
         if (!response.ok) {
           throw new Error(`Failed to fetch data: ${response.statusText}`);
         }
@@ -148,7 +176,7 @@ export function ToolInputPanel({
     return (
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 my-4">
         <div className="flex items-center gap-3">
-          <Spinner size={24} />
+          <Spinner className="h-6 w-6 text-blue-500" />
           <span className="text-blue-700">Loading CSV data...</span>
         </div>
       </div>
@@ -200,9 +228,10 @@ export function ToolInputPanel({
           <div className="mt-3">
             <Button
               onClick={handleExecute}
-              isLoading={isLoading}
-              size="compact"
+              disabled={isLoading}
+              className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
             >
+              {isLoading && <Spinner className="h-4 w-4" />}
               Download CSV
             </Button>
           </div>
