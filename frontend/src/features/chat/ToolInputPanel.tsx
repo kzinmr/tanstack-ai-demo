@@ -136,7 +136,8 @@ export function ToolInputPanel({
       const obj: any = raw;
       if (typeof obj.dataset === "string") return obj.dataset;
       // In case nested shapes appear, try common fallbacks.
-      if (obj.input && typeof obj.input.dataset === "string") return obj.input.dataset;
+      if (obj.input && typeof obj.input.dataset === "string")
+        return obj.input.dataset;
     }
 
     return null;
@@ -147,9 +148,7 @@ export function ToolInputPanel({
     if (!datasetRef) {
       setCsvData(null);
       setFetchError(
-        clientTool
-          ? "Missing dataset reference in tool input"
-          : null
+        clientTool ? "Missing dataset reference in tool input" : null
       );
       return;
     }

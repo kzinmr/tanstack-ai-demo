@@ -28,9 +28,7 @@ export function ChatPage() {
 
   // Get first pending approval (show one at a time)
   const currentApproval =
-    pendingApprovals.size > 0
-      ? pendingApprovals.values().next().value
-      : null;
+    pendingApprovals.size > 0 ? pendingApprovals.values().next().value : null;
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -84,8 +82,8 @@ export function ChatPage() {
                 Welcome to the SQL Analysis Demo
               </h2>
               <p className="text-gray-500 mb-6">
-                Ask questions about your log data. I'll help you analyze it
-                with SQL.
+                Ask questions about your log data. I'll help you analyze it with
+                SQL.
               </p>
               <div className="bg-white rounded-lg p-4 text-left max-w-lg mx-auto border">
                 <p className="text-sm text-gray-600 mb-2">Try this example:</p>
@@ -116,10 +114,7 @@ export function ChatPage() {
 
       {/* Input form */}
       <footer className="border-t bg-white px-4 py-3">
-        <form
-          onSubmit={handleSubmit}
-          className="max-w-4xl mx-auto flex gap-3"
-        >
+        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex gap-3">
           <div className="flex-1">
             <Input
               value={inputText}
@@ -131,7 +126,9 @@ export function ChatPage() {
           </div>
           <Button
             type="submit"
-            disabled={!inputText.trim() || pendingApprovals.size > 0 || isStreaming}
+            disabled={
+              !inputText.trim() || pendingApprovals.size > 0 || isStreaming
+            }
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isStreaming && (
@@ -231,7 +228,8 @@ function MessageBubble({ message }: { message: UIMessage }) {
         {!isUser && datasetPreview && (
           <div className="mt-3 bg-gray-50 border border-gray-200 rounded p-3 overflow-auto">
             <div className="text-xs text-gray-600 mb-2">
-              {datasetPreview.dataset} プレビュー（{datasetPreview.exported_row_count} 行 /{" "}
+              {datasetPreview.dataset} プレビュー（
+              {datasetPreview.exported_row_count} 行 /{" "}
               {datasetPreview.columns.length} 列）
             </div>
             <table className="text-xs w-full border-collapse">
@@ -251,7 +249,10 @@ function MessageBubble({ message }: { message: UIMessage }) {
                 {datasetPreview.rows.slice(0, 5).map((row, i) => (
                   <tr key={i}>
                     {datasetPreview.columns.map((c) => (
-                      <td key={c} className="pr-3 py-1 border-b border-gray-100">
+                      <td
+                        key={c}
+                        className="pr-3 py-1 border-b border-gray-100"
+                      >
                         {String((row as any)[c] ?? "")}
                       </td>
                     ))}
