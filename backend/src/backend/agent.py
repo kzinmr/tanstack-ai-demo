@@ -21,7 +21,7 @@ from pydantic_ai import (
 from .db import DB_SCHEMA, SQL_EXAMPLES
 from .deps import Deps
 from .settings import get_settings
-from .tools import register_tools
+from .tools import register_all_tools
 
 # Get settings
 settings = get_settings()
@@ -40,7 +40,7 @@ def get_agent() -> Agent[Deps, str | DeferredToolRequests]:
         deps_type=Deps,
         output_type=[str, DeferredToolRequests],
     )
-    register_tools(agent)
+    register_all_tools(agent)
     # Register prompt/validators lazily as well (avoid module import-time failures)
     agent.system_prompt(system_prompt)
     agent.output_validator(validate_sql_output)

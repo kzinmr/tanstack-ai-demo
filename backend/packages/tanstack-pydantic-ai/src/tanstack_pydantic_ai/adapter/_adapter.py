@@ -38,7 +38,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.output import OutputDataT
 from pydantic_ai.tools import AgentDepsT
 
-from ..shared.chunks import StreamChunk
+from ..shared.chunks import StreamChunk, UsageObj
 from ..shared.sse import encode_done
 from ..shared.store import InMemoryRunStore
 from ._event_stream import TanStackEventStream
@@ -468,9 +468,50 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
                     captured_result = event.result
                 yield event
 
+        def _usage_from_result() -> Optional[UsageObj]:
+            if captured_result is None:
+                return None
+            try:
+                usage_data = captured_result.usage()
+            except Exception:
+                return None
+            if not usage_data:
+                return None
+
+            def _get_usage_value(*names: str) -> Optional[int]:
+                for name in names:
+                    if isinstance(usage_data, dict) and name in usage_data:
+                        return int(usage_data[name])
+                    if hasattr(usage_data, name):
+                        return int(getattr(usage_data, name))
+                return None
+
+            prompt_tokens = _get_usage_value(
+                "prompt_tokens", "promptTokens", "input_tokens", "inputTokens"
+            )
+            completion_tokens = _get_usage_value(
+                "completion_tokens",
+                "completionTokens",
+                "output_tokens",
+                "outputTokens",
+            )
+            total_tokens = _get_usage_value("total_tokens", "totalTokens")
+
+            if prompt_tokens is None or completion_tokens is None:
+                return None
+            if total_tokens is None:
+                total_tokens = prompt_tokens + completion_tokens
+
+            return UsageObj(
+                promptTokens=prompt_tokens,
+                completionTokens=completion_tokens,
+                totalTokens=total_tokens,
+            )
+
         async for chunk in event_stream.transform_stream(
             capturing_native_events(),
             model_name=model_name,
+            usage_provider=_usage_from_result,
         ):
             yield chunk
 

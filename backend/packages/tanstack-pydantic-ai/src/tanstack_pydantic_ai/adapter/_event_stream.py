@@ -14,6 +14,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterator,
+    Callable,
     Dict,
     Generic,
     Literal,
@@ -112,6 +113,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
     _tool_call_index: int = 0
     _finish_reason: FinishReason = None
     _model_name: str = "unknown"
+    _usage: Optional["UsageObj"] = None
 
     def __post_init__(self) -> None:
         """Initialize message_id from run_input.run_id or generate new one."""
@@ -147,6 +149,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
             model=self._model_name,
             timestamp=now_ms(),
             finishReason=_normalize_finish_reason(self._finish_reason),
+            usage=self._usage,
         )
 
     async def on_error(self, error: Exception) -> AsyncIterator[StreamChunk]:
@@ -377,6 +380,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
         native_events: AsyncIterator[Any],
         *,
         model_name: str = "unknown",
+        usage_provider: Callable[[], Optional["UsageObj"]] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """
         Transform pydantic-ai native events into TanStack StreamChunks.
@@ -441,6 +445,12 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
         except Exception as exc:
             async for chunk in self.on_error(exc):
                 yield chunk
+
+        if usage_provider is not None:
+            try:
+                self._usage = usage_provider()
+            except Exception:
+                self._usage = None
 
         # Lifecycle: after stream
         async for chunk in self.after_stream():
