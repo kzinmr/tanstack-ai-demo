@@ -5,16 +5,6 @@
 
 import { Button } from "@base-ui/react/button";
 
-/**
- * Information about a pending approval request.
- */
-export interface ApprovalInfo {
-  id: string;
-  toolCallId: string;
-  toolName: string;
-  input: unknown;
-}
-
 export interface ApprovalCardProps {
   approvalId: string;
   toolName: string;

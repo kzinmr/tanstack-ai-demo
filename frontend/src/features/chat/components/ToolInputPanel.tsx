@@ -4,19 +4,8 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { Button } from "@base-ui/react/button";
-
-export interface ClientToolInfo {
-  toolCallId: string;
-  toolName: string;
-  input: unknown;
-  runId: string;
-}
-
-export interface ToolResultPayload {
-  output: Record<string, unknown>;
-  state?: "output-available" | "output-error";
-  errorText?: string;
-}
+import type { ClientToolInfo, ToolResultPayload } from "../types";
+import { fetchArtifactData } from "../services/dataService";
 
 interface ToolInputPanelProps {
   clientTool: ClientToolInfo | null;
@@ -26,13 +15,6 @@ interface ToolInputPanelProps {
     payload: ToolResultPayload
   ) => void;
   isLoading: boolean;
-}
-
-interface CSVData {
-  rows: Record<string, unknown>[];
-  columns: string[];
-  original_row_count: number;
-  exported_row_count: number;
 }
 
 /**
@@ -125,7 +107,12 @@ export function ToolInputPanel({
   onComplete,
   isLoading,
 }: ToolInputPanelProps) {
-  const [csvData, setCsvData] = useState<CSVData | null>(null);
+  const [csvData, setCsvData] = useState<{
+    rows: Record<string, unknown>[];
+    columns: string[];
+    original_row_count: number;
+    exported_row_count: number;
+  } | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isFetching, setIsFetching] = useState(false);
 
@@ -185,13 +172,7 @@ export function ToolInputPanel({
         if (!runId) {
           throw new Error("Missing run ID for data fetch");
         }
-        const response = await fetch(
-          `/api/data/${encodeURIComponent(runId)}/${encodeURIComponent(artifact)}`
-        );
-        if (!response.ok) {
-          throw new Error(`Failed to fetch data: ${response.statusText}`);
-        }
-        const data = await response.json();
+        const data = await fetchArtifactData(runId, artifact);
         setCsvData(data);
       } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";

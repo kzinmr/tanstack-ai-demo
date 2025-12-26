@@ -1,11 +1,5 @@
 import { fetchServerSentEvents, type ConnectionAdapter } from "@tanstack/ai-react";
-
-type ContinuationState = {
-  pending: boolean;
-  runId: string | null;
-  approvals: Record<string, boolean>;
-  toolResults: Record<string, unknown>;
-};
+import type { ContinuationState } from "./types";
 
 export function createChatConnection(
   getContinuationState: () => ContinuationState,

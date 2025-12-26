@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseToolResult } from "../toolResult";
+import { parseToolResult } from "../utils/parsing";
 
 describe("parseToolResult", () => {
   it("parses valid JSON with artifacts", () => {
