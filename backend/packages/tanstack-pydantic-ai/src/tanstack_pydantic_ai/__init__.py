@@ -40,16 +40,6 @@ from .shared.chunks import (
 from .shared.sse import dump_chunk, encode_chunk, encode_done, now_ms, sse_data
 from .shared.store import InMemoryRunStore, RunState
 
-# Functional API
-from .functional.streaming import (
-    StreamResult,
-    StreamState,
-    build_message_history,
-    handle_stream_event,
-    stream_chat,
-    stream_continue,
-)
-
 # UIAdapter API
 from .adapter import (
     RequestData,
