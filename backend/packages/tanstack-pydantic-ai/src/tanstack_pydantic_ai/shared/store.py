@@ -5,7 +5,6 @@ Run state storage for stateful continuation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 from pydantic_ai import DeferredToolRequests, ModelMessage
 
@@ -14,9 +13,9 @@ from pydantic_ai import DeferredToolRequests, ModelMessage
 class RunState:
     """State for a single agent run."""
 
-    messages: List[ModelMessage] = field(default_factory=list)
-    pending: Optional[DeferredToolRequests] = None
-    model: Optional[str] = None
+    messages: list[ModelMessage] = field(default_factory=list)
+    pending: DeferredToolRequests | None = None
+    model: str | None = None
 
 
 class InMemoryRunStore:
@@ -28,9 +27,9 @@ class InMemoryRunStore:
     """
 
     def __init__(self) -> None:
-        self._runs: Dict[str, RunState] = {}
+        self._runs: dict[str, RunState] = {}
 
-    def get(self, run_id: str) -> Optional[RunState]:
+    def get(self, run_id: str) -> RunState | None:
         """Get run state by ID."""
         return self._runs.get(run_id)
 
@@ -38,7 +37,7 @@ class InMemoryRunStore:
         """Set run state."""
         self._runs[run_id] = state
 
-    def upsert(self, run_id: str, model: Optional[str]) -> RunState:
+    def upsert(self, run_id: str, model: str | None) -> RunState:
         """Get or create run state."""
         state = self._runs.get(run_id)
         if state is None:
@@ -51,8 +50,8 @@ class InMemoryRunStore:
     def set_messages(
         self,
         run_id: str,
-        messages: List[ModelMessage],
-        model: Optional[str],
+        messages: list[ModelMessage],
+        model: str | None,
     ) -> RunState:
         """Save message history for a run."""
         state = self.upsert(run_id, model)
@@ -62,8 +61,8 @@ class InMemoryRunStore:
     def set_pending(
         self,
         run_id: str,
-        pending: Optional[DeferredToolRequests],
-        model: Optional[str],
+        pending: DeferredToolRequests | None,
+        model: str | None,
     ) -> RunState:
         """Save pending deferred tool requests."""
         state = self.upsert(run_id, model)

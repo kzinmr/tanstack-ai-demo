@@ -56,7 +56,7 @@ def _enforce_limit(sql: str, max_limit: int) -> str:
     return sql
 
 
-def register_sql_tools(agent: "Agent[Deps, ...]", settings: Settings) -> None:
+def register_sql_tools(agent: Agent[Deps, ...], settings: Settings) -> None:
     @agent.tool
     async def preview_schema(ctx: RunContext[Deps]) -> str:
         """

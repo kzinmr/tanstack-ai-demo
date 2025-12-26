@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from pydantic_ai import Agent
 
 
-def register_export_tools(agent: "Agent[Deps, ...]") -> None:
+def register_export_tools(agent: Agent[Deps, ...]) -> None:
     @agent.tool(requires_approval=True)
     async def export_csv(ctx: RunContext[Deps], artifact_id: str) -> str:
         """

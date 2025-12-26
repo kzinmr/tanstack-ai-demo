@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from pydantic_ai import Agent
 
 
-def register_data_tools(agent: "Agent[Deps, ...]") -> None:
+def register_data_tools(agent: Agent[Deps, ...]) -> None:
     @agent.tool
     async def display(ctx: RunContext[Deps], artifact_id: str, rows: int = 5) -> str:
         """
@@ -25,9 +25,7 @@ def register_data_tools(agent: "Agent[Deps, ...]") -> None:
         rows = min(rows, 20)
         df = ctx.deps.artifact_store.get_dataframe(ctx.deps.run_id, artifact_id)
         if df is None:
-            raise ModelRetry(
-                f"Error: {artifact_id} is not a valid artifact reference."
-            )
+            raise ModelRetry(f"Error: {artifact_id} is not a valid artifact reference.")
         return f"Contents (first {rows} rows):\n{df.head(rows).to_string()}"
 
     @agent.tool
@@ -40,9 +38,7 @@ def register_data_tools(agent: "Agent[Deps, ...]") -> None:
         """
         df = ctx.deps.artifact_store.get_dataframe(ctx.deps.run_id, artifact_id)
         if df is None:
-            raise ModelRetry(
-                f"Error: {artifact_id} is not a valid artifact reference."
-            )
+            raise ModelRetry(f"Error: {artifact_id} is not a valid artifact reference.")
         try:
             result = duckdb.query_df(df=df, virtual_table_name="dataset", sql_query=sql)
             result_df = result.df()

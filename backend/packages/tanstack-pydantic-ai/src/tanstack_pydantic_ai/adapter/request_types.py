@@ -6,7 +6,7 @@ Defines the input format expected from TanStack AI frontends.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -30,10 +30,10 @@ class UIMessage(BaseModel):
     """A message in the TanStack AI format."""
 
     role: Literal["user", "assistant", "system", "tool"]
-    content: Optional[str] = None
-    name: Optional[str] = None
-    toolCalls: Optional[List[ToolCallPart]] = None
-    toolCallId: Optional[str] = None
+    content: str | None = None
+    name: str | None = None
+    toolCalls: list[ToolCallPart] | None = None
+    toolCallId: str | None = None
 
 
 class RequestData(BaseModel):
@@ -47,10 +47,10 @@ class RequestData(BaseModel):
     # NOTE: For stateful continuation (HITL), the frontend may send only
     # {run_id, approvals/tool_results}. In that case, message history is loaded
     # from the server-side store, so `messages` must be optional.
-    messages: List[UIMessage] = Field(default_factory=list)
-    model: Optional[str] = None
-    data: Dict[str, Any] = Field(default_factory=dict)
+    messages: list[UIMessage] = Field(default_factory=list)
+    model: str | None = None
+    data: dict[str, Any] = Field(default_factory=dict)
     # For continuation after deferred tools
-    run_id: Optional[str] = None
-    tool_results: Dict[str, Any] = Field(default_factory=dict)
-    approvals: Dict[str, Union[bool, Dict[str, Any]]] = Field(default_factory=dict)
+    run_id: str | None = None
+    tool_results: dict[str, Any] = Field(default_factory=dict)
+    approvals: dict[str, bool | dict[str, Any]] = Field(default_factory=dict)

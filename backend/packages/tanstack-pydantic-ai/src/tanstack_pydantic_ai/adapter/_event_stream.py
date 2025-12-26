@@ -9,25 +9,18 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncIterator,
-    Callable,
-    Dict,
-    Generic,
     Literal,
-    Mapping,
-    Optional,
 )
 
 from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturnPart,
 )
-from pydantic_ai.output import OutputDataT
-from pydantic_ai.tools import AgentDepsT
 
 from ..shared.chunks import (
     ApprovalObj,
@@ -43,6 +36,7 @@ from ..shared.chunks import (
     ToolCallStreamChunk,
     ToolInputAvailableStreamChunk,
     ToolResultStreamChunk,
+    UsageObj,
 )
 from ..shared.sse import now_ms
 from .request_types import RequestData
@@ -83,7 +77,7 @@ def _normalize_finish_reason(
 
 
 @dataclass
-class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
+class TanStackEventStream[AgentDepsT, OutputDataT]:
     """
     UI event stream transformer for TanStack AI protocol.
 
@@ -103,17 +97,17 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
     """
 
     run_input: RequestData
-    accept: Optional[str] = None
+    accept: str | None = None
     # message_id is set in __post_init__ from run_input.run_id
     message_id: str = field(init=False)
 
     # Internal state
-    _text_accumulator: Dict[int, str] = field(default_factory=dict)
-    _thinking_accumulator: Dict[int, str] = field(default_factory=dict)
+    _text_accumulator: dict[int, str] = field(default_factory=dict)
+    _thinking_accumulator: dict[int, str] = field(default_factory=dict)
     _tool_call_index: int = 0
     _finish_reason: FinishReason = None
     _model_name: str = "unknown"
-    _usage: Optional["UsageObj"] = None
+    _usage: UsageObj | None = None
 
     def __post_init__(self) -> None:
         """Initialize message_id from run_input.run_id or generate new one."""
@@ -175,7 +169,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
     # ─────────────────────────────────────────────────────────────────
 
     async def handle_text_start(
-        self, event: "PartStartEvent", part: "TextPart"
+        self, event: PartStartEvent, part: TextPart
     ) -> AsyncIterator[StreamChunk]:
         """Handle start of text content."""
         self._text_accumulator[event.index] = part.content
@@ -190,7 +184,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
             )
 
     async def handle_text_delta(
-        self, event: "PartDeltaEvent", delta: "TextPartDelta"
+        self, event: PartDeltaEvent, delta: TextPartDelta
     ) -> AsyncIterator[StreamChunk]:
         """Handle text content delta."""
         delta_text = delta.content_delta
@@ -212,7 +206,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
     # ─────────────────────────────────────────────────────────────────
 
     async def handle_thinking_start(
-        self, event: "PartStartEvent", part: "ThinkingPart"
+        self, event: PartStartEvent, part: ThinkingPart
     ) -> AsyncIterator[StreamChunk]:
         """Handle start of thinking content."""
         self._thinking_accumulator[event.index] = part.content
@@ -226,7 +220,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
             )
 
     async def handle_thinking_delta(
-        self, event: "PartDeltaEvent", delta: "ThinkingPartDelta"
+        self, event: PartDeltaEvent, delta: ThinkingPartDelta
     ) -> AsyncIterator[StreamChunk]:
         """Handle thinking content delta."""
         if delta.content_delta:
@@ -248,7 +242,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
     # ─────────────────────────────────────────────────────────────────
 
     async def handle_tool_call(
-        self, event: "FunctionToolCallEvent"
+        self, event: FunctionToolCallEvent
     ) -> AsyncIterator[StreamChunk]:
         """Handle function tool call event."""
         part: ToolCallPart = event.part
@@ -277,7 +271,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
         self._tool_call_index += 1
 
     async def handle_tool_result(
-        self, event: "FunctionToolResultEvent"
+        self, event: FunctionToolResultEvent
     ) -> AsyncIterator[StreamChunk]:
         """Handle function tool result event."""
         if isinstance(event.result, ToolReturnPart):
@@ -347,7 +341,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
     # ─────────────────────────────────────────────────────────────────
 
     async def handle_run_result(
-        self, event: "AgentRunResultEvent"
+        self, event: AgentRunResultEvent
     ) -> AsyncIterator[StreamChunk]:
         """Handle agent run result event."""
         from pydantic_ai import DeferredToolRequests
@@ -380,7 +374,7 @@ class TanStackEventStream(Generic[AgentDepsT, OutputDataT]):
         native_events: AsyncIterator[Any],
         *,
         model_name: str = "unknown",
-        usage_provider: Callable[[], Optional["UsageObj"]] | None = None,
+        usage_provider: Callable[[], UsageObj | None] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """
         Transform pydantic-ai native events into TanStack StreamChunks.

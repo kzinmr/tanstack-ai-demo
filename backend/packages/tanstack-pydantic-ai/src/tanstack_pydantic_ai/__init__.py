@@ -19,6 +19,13 @@ Both APIs use shared components from tanstack_pydantic_ai.shared:
 """
 
 # Shared components
+# UIAdapter API
+from .adapter import (
+    RequestData,
+    TanStackAIAdapter,
+    TanStackEventStream,
+    UIMessage,
+)
 from .shared.chunks import (
     ApprovalObj,
     ApprovalRequestedStreamChunk,
@@ -39,14 +46,6 @@ from .shared.chunks import (
 )
 from .shared.sse import dump_chunk, encode_chunk, encode_done, now_ms, sse_data
 from .shared.store import InMemoryRunStore, RunState
-
-# UIAdapter API
-from .adapter import (
-    RequestData,
-    TanStackAIAdapter,
-    TanStackEventStream,
-    UIMessage,
-)
 
 __all__ = [
     # Shared: Chunk types

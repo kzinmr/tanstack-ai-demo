@@ -8,14 +8,13 @@ This module provides:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 import logging
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-
 from tanstack_pydantic_ai import InMemoryRunStore, TanStackAIAdapter
 
 from .agent import get_agent
@@ -104,9 +103,7 @@ async def chat(request: Request) -> StreamingResponse:
             raise
 
         async with get_db_connection() as conn:
-            deps = Deps(
-                conn=conn, run_id=run_id, artifact_store=get_artifact_store()
-            )
+            deps = Deps(conn=conn, run_id=run_id, artifact_store=get_artifact_store())
             adapter = TanStackAIAdapter.from_request(
                 agent=agent,
                 body=body,

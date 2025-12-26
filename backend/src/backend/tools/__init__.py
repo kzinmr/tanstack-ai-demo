@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ..deps import Deps
 
 
-def register_all_tools(agent: "Agent[Deps, ...]") -> None:
+def register_all_tools(agent: Agent[Deps, ...]) -> None:
     settings = get_settings()
     register_sql_tools(agent, settings)
     register_data_tools(agent)

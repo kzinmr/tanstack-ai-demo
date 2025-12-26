@@ -10,18 +10,11 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from typing import (
     Any,
-    AsyncIterator,
-    Callable,
-    Dict,
-    Generic,
-    List,
-    Mapping,
-    Optional,
 )
 
 from pydantic import TypeAdapter
@@ -36,8 +29,6 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.output import OutputDataT
-from pydantic_ai.tools import AgentDepsT
 
 from ..shared.chunks import StreamChunk, UsageObj
 from ..shared.sse import encode_done
@@ -58,7 +49,7 @@ except ImportError:
 
 
 @dataclass
-class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
+class TanStackAIAdapter[AgentDepsT, OutputDataT]:
     """
     UI adapter for TanStack AI protocol.
 
@@ -101,9 +92,9 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
 
     agent: Agent[AgentDepsT, OutputDataT]
     run_input: RequestData
-    accept: Optional[str] = None
-    deps: Optional[AgentDepsT] = None
-    store: Optional[InMemoryRunStore] = None
+    accept: str | None = None
+    deps: AgentDepsT | None = None
+    store: InMemoryRunStore | None = None
 
     # ─────────────────────────────────────────────────────────────────
     # Static helpers
@@ -187,10 +178,10 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
         agent: Agent[AgentDepsT, OutputDataT],
         body: bytes,
         *,
-        accept: Optional[str] = None,
-        deps: Optional[AgentDepsT] = None,
-        store: Optional[InMemoryRunStore] = None,
-    ) -> "TanStackAIAdapter[AgentDepsT, OutputDataT]":
+        accept: str | None = None,
+        deps: AgentDepsT | None = None,
+        store: InMemoryRunStore | None = None,
+    ) -> TanStackAIAdapter[AgentDepsT, OutputDataT]:
         """
         Create adapter from HTTP request body.
 
@@ -250,12 +241,12 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
     # ─────────────────────────────────────────────────────────────────
 
     @cached_property
-    def messages(self) -> List[ModelMessage]:
+    def messages(self) -> list[ModelMessage]:
         """Pydantic AI messages from the TanStack AI run input."""
         return self.load_messages(self.run_input.messages)
 
     @classmethod
-    def load_messages(cls, messages: Sequence[UIMessage]) -> List[ModelMessage]:
+    def load_messages(cls, messages: Sequence[UIMessage]) -> list[ModelMessage]:
         """
         Transform TanStack AI messages into pydantic-ai messages.
 
@@ -265,7 +256,7 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
         - assistant -> TextPart/ToolCallPart in ModelResponse
         - tool -> ToolReturnPart in ModelRequest
         """
-        result: List[ModelMessage] = []
+        result: list[ModelMessage] = []
 
         for msg in messages:
             if msg.role == "system":
@@ -277,7 +268,7 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
                     ModelRequest(parts=[UserPromptPart(content=msg.content or "")])
                 )
             elif msg.role == "assistant":
-                parts: List[Any] = []
+                parts: list[Any] = []
                 if msg.content:
                     parts.append(TextPart(content=msg.content))
                 if msg.toolCalls:
@@ -308,13 +299,13 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
         return result
 
     @classmethod
-    def dump_messages(cls, messages: Sequence[ModelMessage]) -> List[UIMessage]:
+    def dump_messages(cls, messages: Sequence[ModelMessage]) -> list[UIMessage]:
         """
         Transform pydantic-ai messages into TanStack AI messages.
 
         Used when returning conversation history to the frontend.
         """
-        result: List[UIMessage] = []
+        result: list[UIMessage] = []
 
         for msg in messages:
             if isinstance(msg, ModelRequest):
@@ -345,6 +336,8 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
                     elif isinstance(part, ToolCallPart):
                         from .request_types import (
                             ToolCallFunction,
+                        )
+                        from .request_types import (
                             ToolCallPart as TCPart,
                         )
 
@@ -380,7 +373,7 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
         return ""
 
     @property
-    def message_history(self) -> List[ModelMessage]:
+    def message_history(self) -> list[ModelMessage]:
         """
         Get message history for agent run.
 
@@ -415,7 +408,7 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
                             if isinstance(part, ToolCallPart) and part.tool_call_id:
                                 existing_tool_call_ids.add(part.tool_call_id)
 
-                injected_parts: List[ToolCallPart] = []
+                injected_parts: list[ToolCallPart] = []
 
                 def _inject_from(parts: Any) -> None:
                     for p in parts or []:
@@ -478,7 +471,7 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
                     return True
             return False
 
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "message_history": self.message_history,
         }
         # Only pass output_type when it's safe to do so (i.e. no output validators).
@@ -541,7 +534,7 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
                     captured_result = event.result
                 yield event
 
-        def _usage_from_result() -> Optional[UsageObj]:
+        def _usage_from_result() -> UsageObj | None:
             if captured_result is None:
                 return None
             try:
@@ -551,7 +544,7 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
             if not usage_data:
                 return None
 
-            def _get_usage_value(*names: str) -> Optional[int]:
+            def _get_usage_value(*names: str) -> int | None:
                 for name in names:
                     if isinstance(usage_data, dict) and name in usage_data:
                         return int(usage_data[name])

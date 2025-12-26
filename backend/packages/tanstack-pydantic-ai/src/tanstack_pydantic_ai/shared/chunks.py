@@ -6,7 +6,7 @@ These types define the SSE streaming protocol for TanStack AI frontends.
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -33,7 +33,7 @@ class ContentStreamChunk(BaseStreamChunk):
     type: Literal["content"] = "content"
     content: str
     delta: str
-    role: Optional[Literal["assistant"]] = None
+    role: Literal["assistant"] | None = None
 
 
 class ThinkingStreamChunk(BaseStreamChunk):
@@ -87,7 +87,7 @@ class ApprovalRequestedStreamChunk(BaseStreamChunk):
 
 class ErrorObj(BaseModel):
     message: str
-    code: Optional[str] = None
+    code: str | None = None
 
 
 class ErrorStreamChunk(BaseStreamChunk):
@@ -104,16 +104,16 @@ class UsageObj(BaseModel):
 class DoneStreamChunk(BaseStreamChunk):
     type: Literal["done"] = "done"
     finishReason: Literal["stop", "length", "tool_calls", "content_filter"]
-    usage: Optional[UsageObj] = None
+    usage: UsageObj | None = None
 
 
-StreamChunk = Union[
-    ContentStreamChunk,
-    ThinkingStreamChunk,
-    ToolCallStreamChunk,
-    ToolResultStreamChunk,
-    ToolInputAvailableStreamChunk,
-    ApprovalRequestedStreamChunk,
-    ErrorStreamChunk,
-    DoneStreamChunk,
-]
+StreamChunk = (
+    ContentStreamChunk
+    | ThinkingStreamChunk
+    | ToolCallStreamChunk
+    | ToolResultStreamChunk
+    | ToolInputAvailableStreamChunk
+    | ApprovalRequestedStreamChunk
+    | ErrorStreamChunk
+    | DoneStreamChunk
+)
