@@ -117,13 +117,8 @@ async def chat(request: Request) -> StreamingResponse:
     except json.JSONDecodeError:
         body_json = None
 
-    run_id = None
-    if isinstance(body_json, dict):
-        run_id = body_json.get("run_id")
-        if not run_id:
-            data = body_json.get("data") or {}
-            if isinstance(data, dict):
-                run_id = data.get("conversationId")
+    # Receive continuation request from the frontend, or generate a new session if not provided
+    run_id = body_json.get("run_id") if isinstance(body_json, dict) else None
 
     if not run_id:
         run_id = uuid.uuid4().hex
