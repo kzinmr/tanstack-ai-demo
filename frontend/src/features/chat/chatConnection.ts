@@ -30,6 +30,7 @@ export function createChatConnection(
 
     return {
       headers: { Accept: "text/event-stream" },
+      body: runId ? { run_id: runId } : undefined,
     };
   });
 }
