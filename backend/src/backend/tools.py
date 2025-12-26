@@ -13,19 +13,28 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import json
 import re
 
 import duckdb
 import pandas as pd
-from pydantic_ai import CallDeferred, RunContext
+from pydantic_ai import CallDeferred, ModelRetry, RunContext
 
-from .data_store import csv_data_store
 from .db import DB_SCHEMA
 from .deps import Deps
 from .settings import get_settings
 
 if TYPE_CHECKING:
     from pydantic_ai import Agent
+
+
+def _tool_result(
+    message: str, artifacts: list[dict[str, object]] | None = None
+) -> str:
+    payload: dict[str, object] = {"message": message}
+    if artifacts:
+        payload["artifacts"] = artifacts
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def register_tools(agent: "Agent[Deps, ...]") -> None:
@@ -55,7 +64,7 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
                  Always include LIMIT to prevent large result sets.
 
         Returns:
-            A message indicating success with the result reference (e.g., "Out[1]")
+            A message indicating success with the artifact_id
         """
         # Validate SQL is SELECT only
         sql_upper = sql.strip().upper()
@@ -83,76 +92,54 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
         try:
             rows = await ctx.deps.conn.fetch(sql)
             df = pd.DataFrame([dict(r) for r in rows])
-            ref = ctx.deps.store(df)
-            # Make the dataset resolvable by the frontend via /api/data/{dataset}.
-            # This enables preview/export even when the assistant only mentions Out[n].
-            original_row_count = len(df)
-            max_rows = settings.sql_max_limit
-            df_serializable = df.copy()
-            for col in df_serializable.columns:
-                if pd.api.types.is_datetime64_any_dtype(df_serializable[col]):
-                    df_serializable[col] = df_serializable[col].astype(str)
-            limited_df = df_serializable.head(max_rows)
-            csv_data_store().store(
-                run_id=ctx.deps.run_id,
-                dataset_ref=ref,
-                rows=limited_df.to_dict(orient="records"),
-                columns=list(limited_df.columns),
-                original_row_count=original_row_count,
-            )
+            artifact = ctx.deps.artifact_store.store(ctx.deps.run_id, df)
 
             # Return a short, accurate summary + preview (first 5 rows).
-            preview_rows = min(5, original_row_count)
+            row_count = len(df)
+            preview_rows = min(5, row_count)
             preview = df.head(preview_rows).to_string()
-            return (
-                f"クエリを実行し、結果を `{ref}` として保存しました。"
-                f"取得した行数（クエリ結果）: {original_row_count}。\n\n"
-                f"プレビュー（先頭 {preview_rows} 行）:\n{preview}"
+            return _tool_result(
+                message=(
+                    f"クエリを実行しました（{row_count}行）。\n\n"
+                    f"プレビュー（先頭 {preview_rows} 行）:\n{preview}"
+                ),
+                artifacts=[
+                    {
+                        "id": artifact.id,
+                        "type": artifact.type,
+                        "row_count": row_count,
+                    }
+                ],
             )
         except Exception as e:
             return f"SQLの実行に失敗しました: {e}"
 
     @agent.tool
-    async def display(ctx: RunContext[Deps], dataset: str, rows: int = 5) -> str:
+    async def display(
+        ctx: RunContext[Deps], artifact_id: str, rows: int = 5
+    ) -> str:
         """
         Display the first N rows of a stored dataset.
 
         Args:
-            dataset: Reference to the dataset (e.g., "Out[1]")
+            artifact_id: Artifact ID to display
             rows: Number of rows to display (default: 5, max: 20)
 
         Returns:
             A string representation of the DataFrame head
         """
         rows = min(rows, 20)  # Cap at 20 rows
-        df = ctx.deps.get(dataset)
-        # Ensure the dataset reference is resolvable via /api/data/{dataset} for
-        # later CSV export flows, even when the original dataset was produced in
-        # a previous request/run.
-        try:
-            original_row_count = len(df)
-            max_rows = settings.sql_max_limit
-            df_serializable = df.copy()
-            for col in df_serializable.columns:
-                if pd.api.types.is_datetime64_any_dtype(df_serializable[col]):
-                    df_serializable[col] = df_serializable[col].astype(str)
-            limited_df = df_serializable.head(max_rows)
-            csv_data_store().store(
-                run_id=ctx.deps.run_id,
-                dataset_ref=dataset,
-                rows=limited_df.to_dict(orient="records"),
-                columns=list(limited_df.columns),
-                original_row_count=original_row_count,
+        df = ctx.deps.artifact_store.get_dataframe(ctx.deps.run_id, artifact_id)
+        if df is None:
+            raise ModelRetry(
+                f"Error: {artifact_id} is not a valid artifact reference."
             )
-        except Exception:
-            # Best-effort: display should still work even if caching fails.
-            pass
-        return (
-            f"Contents of {dataset} (first {rows} rows):\n{df.head(rows).to_string()}"
-        )
+        return f"Contents (first {rows} rows):\n{df.head(rows).to_string()}"
 
     @agent.tool
-    async def run_duckdb(ctx: RunContext[Deps], dataset: str, sql: str) -> str:
+    async def run_duckdb(
+        ctx: RunContext[Deps], artifact_id: str, sql: str
+    ) -> str:
         """
         Run a DuckDB SQL query on a stored DataFrame.
 
@@ -160,67 +147,62 @@ def register_tools(agent: "Agent[Deps, ...]") -> None:
         The virtual table name in the SQL must be 'dataset'.
 
         Args:
-            dataset: Reference to the source DataFrame (e.g., "Out[1]")
+            artifact_id: Reference to the source artifact
             sql: DuckDB SQL query. Use 'dataset' as the table name.
 
         Returns:
             A message indicating success with the result reference
         """
-        df = ctx.deps.get(dataset)
+        df = ctx.deps.artifact_store.get_dataframe(ctx.deps.run_id, artifact_id)
+        if df is None:
+            raise ModelRetry(
+                f"Error: {artifact_id} is not a valid artifact reference."
+            )
         try:
             result = duckdb.query_df(df=df, virtual_table_name="dataset", sql_query=sql)
             result_df = result.df()
-            ref = ctx.deps.store(result_df)
-            # Also store for /api/data/{dataset} so the frontend can preview/export.
-            original_row_count = len(result_df)
-            max_rows = settings.sql_max_limit
-            df_serializable = result_df.copy()
-            for col in df_serializable.columns:
-                if pd.api.types.is_datetime64_any_dtype(df_serializable[col]):
-                    df_serializable[col] = df_serializable[col].astype(str)
-            limited_df = df_serializable.head(max_rows)
-            csv_data_store().store(
-                run_id=ctx.deps.run_id,
-                dataset_ref=ref,
-                rows=limited_df.to_dict(orient="records"),
-                columns=list(limited_df.columns),
-                original_row_count=original_row_count,
+            artifact = ctx.deps.artifact_store.store(ctx.deps.run_id, result_df)
+            row_count = len(result_df)
+            preview_rows = min(5, row_count)
+            preview = result_df.head(preview_rows).to_string()
+            return _tool_result(
+                message=(
+                    f"DuckDB query executed ({row_count} rows).\n\n"
+                    f"Preview (first {preview_rows} rows):\n{preview}"
+                ),
+                artifacts=[
+                    {
+                        "id": artifact.id,
+                        "type": artifact.type,
+                        "row_count": row_count,
+                    }
+                ],
             )
-            return f"DuckDB query executed. Result stored as `{ref}` ({len(result_df)} rows)"
         except Exception as e:
             return f"Error executing DuckDB query: {e}"
 
     # NOTE: export_csv is a client-side tool (CallDeferred). We mark it as
     # requires_approval so the demo shows HITL before the client execution.
     @agent.tool(requires_approval=True)
-    async def export_csv(ctx: RunContext[Deps], dataset: str) -> str:
+    async def export_csv(ctx: RunContext[Deps], artifact_id: str) -> str:
         """
         Export a dataset as CSV file (executed on client side).
 
         This tool is executed in the browser (client-side).
         The client will receive the data reference and fetch the actual data
-        from /api/data/{dataset} endpoint.
+        from /api/data/{artifact_id} endpoint.
 
         Args:
-            dataset: Reference to the dataset to export (e.g., "Out[1]")
+            artifact_id: Reference to the artifact to export
 
         Returns:
             Never returns normally - raises CallDeferred for client execution
         """
-        # IMPORTANT:
-        # `Deps.output` is per-request and is NOT persisted across /api/chat calls.
-        # Therefore, exporting by dataset reference (e.g. Out[1]) must not rely on
-        # ctx.deps.get(dataset) here.
-        #
-        # Instead, we rely on the server-side csv_data_store keyed by dataset ref,
-        # which is populated when datasets are created (execute_sql/run_duckdb).
-        # The client tool panel will fetch the actual data from /api/data/{dataset}.
-        if csv_data_store().get(ctx.deps.run_id, dataset) is None:
+        if ctx.deps.artifact_store.get(ctx.deps.run_id, artifact_id) is None:
             return (
-                f"エクスポート対象のデータ `{dataset}` が見つかりませんでした。"
-                "直前にクエリを実行して結果（Out[n]）を作成してから、もう一度CSV出力してください。"
+                "エクスポート対象のデータが見つかりませんでした。"
+                "直前にクエリを実行して結果を作成してから、もう一度CSV出力してください。"
             )
 
-        # Raise CallDeferred - the dataset reference is included in the tool args,
-        # which get forwarded to tool-input-available.input (e.g. {dataset: "Out[1]"}).
+        # Raise CallDeferred - the artifact_id is included in the tool args.
         raise CallDeferred()

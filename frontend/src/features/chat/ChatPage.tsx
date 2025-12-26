@@ -47,48 +47,55 @@ function formatToolArguments(argumentsText: string): string {
   }
 }
 
-function hasPendingApproval(parts: MessagePart[]): boolean {
-  return parts.some(
-    (part) => {
-      if (part.type !== "tool-call") return false;
-      if (part.approval?.needsApproval && part.approval.approved === undefined) {
-        return true;
-      }
-      return (
-        !part.approval &&
-        part.state === "input-complete" &&
-        APPROVAL_REQUIRED_TOOLS.has(part.name)
-      );
+type ParsedToolResult = {
+  message?: string;
+  artifacts?: Array<{
+    id: string;
+    type?: string;
+    row_count?: number;
+  }>;
+};
+
+function parseToolResult(content: string): ParsedToolResult | null {
+  if (!content) return null;
+  try {
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const message =
+      typeof parsed.message === "string" ? parsed.message : undefined;
+    const artifacts = Array.isArray(parsed.artifacts)
+      ? parsed.artifacts
+          .map((item) => {
+            if (!item || typeof item !== "object") return null;
+            const obj = item as Record<string, unknown>;
+            if (typeof obj.id !== "string") return null;
+            const type = typeof obj.type === "string" ? obj.type : undefined;
+            const row_count =
+              typeof obj.row_count === "number" ? obj.row_count : undefined;
+            return { id: obj.id, type, row_count };
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null)
+      : undefined;
+
+    if (!message && (!artifacts || artifacts.length === 0)) {
+      return null;
     }
-  );
-}
 
-function extractDatasetRef(parts: MessagePart[]): string | null {
-  const pattern = /Out\[\d+\]/g;
-
-  const findFirst = (text: string): string | null => {
-    const match = text.match(pattern);
-    return match?.[0] ?? null;
-  };
-
-  for (const part of parts) {
-    if (part.type === "tool-result") {
-      const found = findFirst(part.content);
-      if (found) return found;
-    }
-  }
-
-  if (hasPendingApproval(parts)) {
+    return { message, artifacts };
+  } catch {
     return null;
   }
+}
 
+function extractArtifactId(parts: MessagePart[]): string | null {
   for (const part of parts) {
-    if (part.type === "text") {
-      const found = findFirst(part.content);
-      if (found) return found;
+    if (part.type !== "tool-result") continue;
+    const payload = parseToolResult(part.content);
+    if (payload?.artifacts?.length) {
+      return payload.artifacts[0].id;
     }
   }
-
   return null;
 }
 
@@ -528,8 +535,8 @@ function MessageBubble({
   isLoading,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
-  const [datasetPreview, setDatasetPreview] = useState<{
-    dataset: string;
+  const [artifactPreview, setArtifactPreview] = useState<{
+    artifactId: string;
     rows: Record<string, unknown>[];
     columns: string[];
     original_row_count: number;
@@ -537,36 +544,36 @@ function MessageBubble({
   } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  const datasetRef = useMemo(
-    () => extractDatasetRef(message.parts),
+  const artifactId = useMemo(
+    () => extractArtifactId(message.parts),
     [message.parts]
   );
 
-  // Auto-preview the first Out[n] reference in assistant messages (if available).
+  // Auto-preview the first artifact_id from tool results (if available).
   useEffect(() => {
     if (isUser) return;
 
-    if (!datasetRef || !runId) {
-      setDatasetPreview(null);
+    if (!artifactId || !runId) {
+      setArtifactPreview(null);
       setPreviewError(null);
       return;
     }
 
     let cancelled = false;
-    setDatasetPreview(null);
+    setArtifactPreview(null);
     setPreviewError(null);
 
     (async () => {
       try {
         const res = await fetch(
-          `/api/data/${encodeURIComponent(runId)}/${encodeURIComponent(datasetRef)}`
+          `/api/data/${encodeURIComponent(runId)}/${encodeURIComponent(artifactId)}`
         );
         if (!res.ok) {
           throw new Error(`Failed to fetch data: ${res.statusText}`);
         }
         const data = await res.json();
         if (!cancelled) {
-          setDatasetPreview({ dataset: datasetRef, ...data });
+          setArtifactPreview({ artifactId, ...data });
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Unknown error";
@@ -577,7 +584,7 @@ function MessageBubble({
     return () => {
       cancelled = true;
     };
-  }, [datasetRef, runId, isUser]);
+  }, [artifactId, runId, isUser]);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -605,17 +612,16 @@ function MessageBubble({
           )}
         </div>
 
-        {!isUser && datasetPreview && (
+        {!isUser && artifactPreview && (
           <div className="mt-3 bg-gray-50 border border-gray-200 rounded p-3 overflow-auto">
             <div className="text-xs text-gray-600 mb-2">
-              {datasetPreview.dataset} プレビュー（
-              {datasetPreview.exported_row_count} 行 /{" "}
-              {datasetPreview.columns.length} 列）
+              データプレビュー（{artifactPreview.exported_row_count} 行 /{" "}
+              {artifactPreview.columns.length} 列）
             </div>
             <table className="text-xs w-full border-collapse">
               <thead>
                 <tr>
-                  {datasetPreview.columns.map((c) => (
+                  {artifactPreview.columns.map((c) => (
                     <th
                       key={c}
                       className="text-left border-b border-gray-200 pr-3 pb-1 font-medium"
@@ -626,9 +632,9 @@ function MessageBubble({
                 </tr>
               </thead>
               <tbody>
-                {datasetPreview.rows.slice(0, 5).map((row, i) => (
+                {artifactPreview.rows.slice(0, 5).map((row, i) => (
                   <tr key={i}>
-                    {datasetPreview.columns.map((c) => (
+                    {artifactPreview.columns.map((c) => (
                       <td
                         key={c}
                         className="pr-3 py-1 border-b border-gray-100"
@@ -798,6 +804,8 @@ function ToolCallPartView({
 
 function ToolResultPartView({ part }: { part: ToolResultPart }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const parsed = useMemo(() => parseToolResult(part.content), [part.content]);
+  const displayText = parsed?.message ?? part.content;
 
   return (
     <div className="rounded-md border border-gray-200 bg-white p-2 text-xs">
@@ -823,7 +831,7 @@ function ToolResultPartView({ part }: { part: ToolResultPart }) {
       </button>
       {isExpanded && (
         <div className="whitespace-pre-wrap text-gray-700 mt-2 pl-4">
-          {part.content}
+          {displayText}
         </div>
       )}
     </div>

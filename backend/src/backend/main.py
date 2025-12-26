@@ -25,10 +25,10 @@ from tanstack_pydantic_ai.shared.chunks import (
 from tanstack_pydantic_ai.shared.sse import encode_chunk, encode_done, now_ms
 
 from .agent import get_agent
-from .data_store import csv_data_store
 from .db import get_db_connection
 from .deps import Deps
 from .settings import get_settings
+from .store import get_artifact_store
 
 # Get settings
 settings = get_settings()
@@ -110,7 +110,7 @@ async def chat(request: Request) -> StreamingResponse:
     body = await request.body()
     accept = request.headers.get("accept")
 
-    # Parse run_id from body for Deps (used to scope Out[n] references).
+    # Parse run_id from body for Deps (used to scope artifacts).
     # Ensure the same run_id is used by both Deps and the adapter.
     try:
         body_json = json.loads(body) if body else {}
@@ -141,7 +141,9 @@ async def chat(request: Request) -> StreamingResponse:
 
         try:
             async with get_db_connection() as conn:
-                deps = Deps(conn=conn, run_id=run_id)
+                deps = Deps(
+                    conn=conn, run_id=run_id, artifact_store=get_artifact_store()
+                )
                 adapter = TanStackAIAdapter.from_request(
                     agent=agent,
                     body=body,
@@ -171,31 +173,31 @@ async def chat(request: Request) -> StreamingResponse:
     return StreamingResponse(stream(), headers=_sse_headers())
 
 
-@app.get("/api/data/{run_id}/{dataset:path}")
-async def get_csv_data(run_id: str, dataset: str) -> dict:
+@app.get("/api/data/{run_id}/{artifact_id:path}")
+async def get_csv_data(run_id: str, artifact_id: str) -> dict:
     """
-    Get CSV export data by run_id and dataset reference.
+    Get CSV export data by run_id and artifact ID.
 
     This endpoint is called by the frontend after receiving a tool-input-available
-    chunk for the export_csv tool. The dataset reference (e.g., "Out[1]") is
-    included in the tool args, and the run_id is used to scope the data.
+    chunk for the export_csv tool. The artifact_id is included in the tool args,
+    and the run_id is used to scope the data.
 
     Args:
         run_id: The run ID that produced this dataset
-        dataset: The dataset reference (e.g., "Out[1]")
+        artifact_id: The artifact identifier
 
     Returns:
         JSON with rows, columns, and row count information
     """
-    data = csv_data_store().get(run_id, dataset)
-    if data is None:
-        raise HTTPException(status_code=404, detail="Data not found or expired")
+    artifact = get_artifact_store().get(run_id, artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Artifact not found or expired")
 
     return {
-        "rows": data.rows,
-        "columns": data.columns,
-        "original_row_count": data.original_row_count,
-        "exported_row_count": data.exported_row_count,
+        "rows": artifact.rows,
+        "columns": artifact.columns,
+        "original_row_count": artifact.original_row_count,
+        "exported_row_count": len(artifact.rows),
     }
 
 
