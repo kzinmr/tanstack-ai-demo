@@ -7,6 +7,7 @@ Supports stateful continuation for deferred tools (HITL flows).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import Sequence
@@ -103,6 +104,78 @@ class TanStackAIAdapter(Generic[AgentDepsT, OutputDataT]):
     accept: Optional[str] = None
     deps: Optional[AgentDepsT] = None
     store: Optional[InMemoryRunStore] = None
+
+    # ─────────────────────────────────────────────────────────────────
+    # Static helpers
+    # ─────────────────────────────────────────────────────────────────
+    @staticmethod
+    async def error_response(
+        message: str,
+        *,
+        model: str = "unknown",
+        run_id: str,
+        error_code: str | None = None,
+    ) -> AsyncIterator[bytes]:
+        """
+        Produce a TanStack-compatible SSE stream for initialization errors.
+        """
+        from ..shared.chunks import DoneStreamChunk, ErrorObj, ErrorStreamChunk
+        from ..shared.sse import encode_chunk, encode_done, now_ms
+
+        yield encode_chunk(
+            ErrorStreamChunk(
+                id=run_id,
+                model=model,
+                timestamp=now_ms(),
+                error=ErrorObj(message=message, code=error_code),
+            )
+        ).encode("utf-8")
+        yield encode_chunk(
+            DoneStreamChunk(
+                id=run_id,
+                model=model,
+                timestamp=now_ms(),
+                finishReason="stop",
+            )
+        ).encode("utf-8")
+        yield encode_done().encode("utf-8")
+
+    @staticmethod
+    async def stream_with_error_handling(
+        stream: AsyncIterator[bytes],
+        *,
+        model: str = "unknown",
+        run_id: str,
+    ) -> AsyncIterator[bytes]:
+        """
+        Wrap a streaming response to emit TanStack-compatible error chunks.
+        """
+        from ..shared.chunks import DoneStreamChunk, ErrorObj, ErrorStreamChunk
+        from ..shared.sse import encode_chunk, encode_done, now_ms
+
+        try:
+            async for chunk in stream:
+                yield chunk
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            yield encode_chunk(
+                ErrorStreamChunk(
+                    id=run_id,
+                    model=model,
+                    timestamp=now_ms(),
+                    error=ErrorObj(message=str(exc)),
+                )
+            ).encode("utf-8")
+            yield encode_chunk(
+                DoneStreamChunk(
+                    id=run_id,
+                    model=model,
+                    timestamp=now_ms(),
+                    finishReason="stop",
+                )
+            ).encode("utf-8")
+            yield encode_done().encode("utf-8")
 
     # ─────────────────────────────────────────────────────────────────
     # Factory methods

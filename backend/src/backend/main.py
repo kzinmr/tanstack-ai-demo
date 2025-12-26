@@ -17,12 +17,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from tanstack_pydantic_ai import InMemoryRunStore, TanStackAIAdapter
-from tanstack_pydantic_ai.shared.chunks import (
-    DoneStreamChunk,
-    ErrorObj,
-    ErrorStreamChunk,
-)
-from tanstack_pydantic_ai.shared.sse import encode_chunk, encode_done, now_ms
 
 from .agent import get_agent
 from .db import get_db_connection
@@ -56,40 +50,12 @@ logger = logging.getLogger(__name__)
 
 
 def _sse_headers() -> dict[str, str]:
-    # Keep consistent with TanStackAIAdapter.response_headers
+    """Standard SSE response headers."""
     return {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
     }
-
-
-async def _stream_init_error(message: str) -> AsyncIterator[bytes]:
-    """
-    Produce a TanStack-compatible SSE stream for initialization errors.
-
-    This keeps the frontend contract stable (SSE + [DONE]) even when the agent
-    can't be constructed (e.g. missing API keys).
-    """
-    run_id = uuid.uuid4().hex
-    model_name = settings.llm_model
-    yield encode_chunk(
-        ErrorStreamChunk(
-            id=run_id,
-            model=model_name,
-            timestamp=now_ms(),
-            error=ErrorObj(message=message),
-        )
-    ).encode("utf-8")
-    yield encode_chunk(
-        DoneStreamChunk(
-            id=run_id,
-            model=model_name,
-            timestamp=now_ms(),
-            finishReason="stop",
-        )
-    ).encode("utf-8")
-    yield encode_done().encode("utf-8")
 
 
 @app.post("/api/chat")
@@ -117,7 +83,7 @@ async def chat(request: Request) -> StreamingResponse:
     except json.JSONDecodeError:
         body_json = None
 
-    # Receive continuation request from the frontend, or generate a new session if not provided
+    # Ensure run_id is present (generate if missing) for the adapter and deps.
     run_id = body_json.get("run_id") if isinstance(body_json, dict) else None
 
     if not run_id:
@@ -133,44 +99,30 @@ async def chat(request: Request) -> StreamingResponse:
         # "connection is closed" when the request handler returns.
         try:
             agent = get_agent()
-        except Exception as exc:
+        except Exception:
             logger.exception("Failed to construct agent")
-            async for b in _stream_init_error(str(exc)):
-                yield b
-            return
+            raise
 
-        try:
-            async with get_db_connection() as conn:
-                deps = Deps(
-                    conn=conn, run_id=run_id, artifact_store=get_artifact_store()
-                )
-                adapter = TanStackAIAdapter.from_request(
-                    agent=agent,
-                    body=body,
-                    accept=accept,
-                    deps=deps,
-                    store=store,
-                )
-                async for chunk in adapter.streaming_response():
-                    yield chunk
-        except Exception as exc:
-            # Ensure we always emit a TanStack-compatible error chunk rather than
-            # failing the stream silently.
-            logger.exception("Unhandled error while streaming /api/chat")
-            event_stream = TanStackAIAdapter.from_request(
+        async with get_db_connection() as conn:
+            deps = Deps(
+                conn=conn, run_id=run_id, artifact_store=get_artifact_store()
+            )
+            adapter = TanStackAIAdapter.from_request(
                 agent=agent,
                 body=body,
                 accept=accept,
-                deps=None,
+                deps=deps,
                 store=store,
-            ).build_event_stream()
-            async for error_chunk in event_stream.on_error(exc):
-                yield event_stream.encode_event(error_chunk).encode("utf-8")
-            async for done_chunk in event_stream.after_stream():
-                yield event_stream.encode_event(done_chunk).encode("utf-8")
-            yield encode_done().encode("utf-8")
+            )
+            async for chunk in adapter.streaming_response():
+                yield chunk
 
-    return StreamingResponse(stream(), headers=_sse_headers())
+    return StreamingResponse(
+        TanStackAIAdapter.stream_with_error_handling(
+            stream(), model=settings.llm_model, run_id=run_id
+        ),
+        headers=_sse_headers(),
+    )
 
 
 @app.get("/api/data/{run_id}/{artifact_id:path}")
