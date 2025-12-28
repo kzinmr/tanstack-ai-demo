@@ -99,11 +99,11 @@ Enter this message to experience the HITL flow:
 
 ### API Endpoints
 
-| Endpoint                  | Description                              |
-| ------------------------- | ---------------------------------------- |
-| `POST /api/chat`          | Start/continue chat stream (HITL)        |
-| `GET /api/data/{dataset}` | Get CSV export data by dataset reference |
-| `GET /health`             | Health check                             |
+| Endpoint                             | Description                              |
+| ------------------------------------ | ---------------------------------------- |
+| `POST /api/chat`                     | Start/continue chat stream (HITL)        |
+| `GET /api/data/{run_id}/{artifact_id}` | Get artifact data by run and artifact ID |
+| `GET /health`                        | Health check                             |
 
 ### Request Examples
 
@@ -150,14 +150,18 @@ Enter this message to experience the HITL flow:
 ```
 tanstack-ai-demo/
 ├── backend/
-│   ├── pyproject.toml      # Python dependencies
-│   ├── .env.example        # Environment template
-│   └── src/
-│       ├── main.py         # FastAPI app
-│       ├── agent.py        # pydantic-ai Agent definition
-│       ├── tools.py        # Tool definitions (HITL enabled)
-│       ├── deps.py         # RunContext dependencies
-│       └── db.py           # DB connection & schema
+│   ├── pyproject.toml           # Python dependencies
+│   ├── .env.example             # Environment template
+│   ├── packages/
+│   │   └── tanstack-pydantic-ai/  # TanStack AI adapter library
+│   └── src/backend/
+│       ├── main.py              # FastAPI app
+│       ├── agent.py             # pydantic-ai Agent definition
+│       ├── settings.py          # Application settings
+│       ├── deps.py              # RunContext dependencies
+│       ├── db.py                # DB connection & schema
+│       ├── store/               # Artifact store
+│       └── tools/               # Tool definitions (HITL enabled)
 └── frontend/
     ├── package.json
     ├── vite.config.ts
@@ -165,11 +169,13 @@ tanstack-ai-demo/
         ├── main.tsx
         ├── App.tsx
         └── features/chat/
-            ├── ChatPage.tsx         # Main chat UI
-            ├── chatConnection.ts    # TanStack AI connection adapter
-            ├── ApprovalModal.tsx    # Approval modal
-            └── ToolInputPanel.tsx   # CSV export UI
-
+            ├── ChatPage.tsx       # Main chat UI
+            ├── chatConnection.ts  # TanStack AI connection adapter
+            ├── components/        # UI components (ApprovalModal, etc.)
+            ├── hooks/             # Custom hooks
+            ├── services/          # API services
+            ├── types/             # TypeScript types
+            └── utils/             # Utility functions
 ```
 
 ## Tech Stack

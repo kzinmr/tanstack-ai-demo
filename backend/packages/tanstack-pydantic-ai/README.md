@@ -4,9 +4,7 @@ TanStack AI-compatible streaming backend for pydantic-ai.
 
 ## Features
 
-- Two APIs for different use cases:
-  - **Functional API**: `stream_chat()`, `stream_continue()` - framework-agnostic streaming
-  - **UIAdapter API**: `TanStackAIAdapter` - class-based pattern following pydantic-ai's UIAdapter
+- **UIAdapter API**: `TanStackAIAdapter` - class-based pattern following pydantic-ai's UIAdapter
 - Full [TanStack AI StreamChunk](https://tanstack.com/ai/latest/docs/reference/type-aliases/StreamChunk) protocol support
 - Stateful continuation for Human-in-the-Loop (HITL) flows
 - Support for pydantic-ai [Deferred Tools](https://ai.pydantic.dev/deferred-tools/)
@@ -21,17 +19,11 @@ uv add git+https://github.com/kzinmr/tanstack-pydantic-ai.git
 
 ```
 tanstack_pydantic_ai/
-├── shared/        # Shared components (StreamChunk, SSE, Store)
-├── functional/    # Function-based streaming API
-├── adapter/       # UIAdapter-based API
-└── ui/tanstack/   # Alias for adapter (backward compatibility)
+├── adapter/       # UIAdapter-based API (TanStackAIAdapter, TanStackEventStream)
+└── shared/        # Shared components (StreamChunk types, SSE utilities, Store)
 ```
 
 ## Quick Start
-
-### Option 1: UIAdapter API (Recommended)
-
-The UIAdapter pattern provides a clean, class-based interface:
 
 ```python
 from fastapi import FastAPI, Request
@@ -70,78 +62,12 @@ async def chat_continue(request: Request):
     )
 ```
 
-### Option 2: Functional API
-
-For more control or custom frameworks:
-
-```python
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
-from pydantic_ai import Agent
-
-from tanstack_pydantic_ai import (
-    stream_chat,
-    InMemoryRunStore,
-    dump_chunk,
-    sse_data,
-    encode_done,
-)
-
-agent = Agent("openai:gpt-4o-mini")
-store = InMemoryRunStore()
-
-app = FastAPI()
-
-@app.post("/chat")
-async def chat(messages: list, model: str = None):
-    user_prompt = messages[-1]["content"]
-
-    async def generate():
-        stream = stream_chat(agent, user_prompt, model=model)
-
-        async for chunk in stream:
-            yield sse_data(dump_chunk(chunk))
-
-        # Save result for continuation
-        result = await stream.result()
-        store.set_messages(stream.run_id, result.all_messages(), model)
-
-        yield encode_done()
-
-    return StreamingResponse(generate(), media_type="text/event-stream")
-```
-
 ## API Reference
-
-### Functional API
-
-```python
-from tanstack_pydantic_ai.functional import stream_chat, stream_continue, StreamResult
-
-# Start a new chat
-stream: StreamResult = stream_chat(
-    agent,
-    user_prompt="Hello!",
-    message_history=None,  # Optional
-    model=None,            # Optional model override
-    run_id=None,           # Optional (auto-generated)
-)
-
-# Iterate over chunks
-async for chunk in stream:
-    print(chunk.type)  # content, thinking, tool_call, tool_result, done, error
-
-# Get final result
-result = await stream.result()
-messages = result.all_messages()
-output = result.output  # str | DeferredToolRequests
-```
 
 ### UIAdapter API
 
 ```python
-from tanstack_pydantic_ai.ui.tanstack import TanStackAIAdapter, TanStackEventStream
-# Or: from tanstack_pydantic_ai.adapter import TanStackAIAdapter
+from tanstack_pydantic_ai import TanStackAIAdapter, TanStackEventStream
 
 adapter = TanStackAIAdapter.from_request(
     agent=agent,
@@ -169,7 +95,7 @@ async for data in adapter.streaming_response():
 ### Shared Components
 
 ```python
-from tanstack_pydantic_ai.shared import (
+from tanstack_pydantic_ai import (
     # Chunk types
     StreamChunk,
     ContentStreamChunk,
@@ -223,17 +149,6 @@ For Human-in-the-Loop flows with deferred tools:
     "approvals": {"tool_call_id_2": true},
     "messages": []  # Ignored in stateful mode
 }
-```
-
-## Demo
-
-```sh
-# Start demo server
-uv run uvicorn examples.backend.demo_server:app --host 127.0.0.1 --port 8000 &
-
-# Run frontend verification
-cd examples/frontend
-npm run verify
 ```
 
 ## References
