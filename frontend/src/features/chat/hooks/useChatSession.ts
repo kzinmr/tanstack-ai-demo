@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@tanstack/ai-react";
-import type { StreamChunk, ToolCallState, UIMessage } from "@tanstack/ai";
+import type { StreamChunk, UIMessage } from "@tanstack/ai";
 import type {
   ApprovalInfo,
   ClientToolInfo,
@@ -10,36 +10,28 @@ import type {
 import { createChatConnection } from "../chatConnection";
 import { parseToolArguments } from "../utils/parsing";
 
-const APPROVAL_REQUIRED_TOOLS = new Set(["execute_sql", "export_csv"]);
-
-function hasToolResult(messages: UIMessage[], toolCallId: string): boolean {
-  return messages.some((message) =>
-    message.parts.some(
-      (part) => part.type === "tool-result" && part.toolCallId === toolCallId
-    )
-  );
-}
-
-function ensureApprovalMetadata(
+// Keep approval metadata on tool-call parts when @tanstack/ai’s stream processor resets them.
+function applyApprovalRequestsToMessages(
   messages: UIMessage[],
-  toolCallId: string,
-  approvalId: string
+  approvalRequests: Record<string, ApprovalInfo>
 ): UIMessage[] | null {
-  let changed = false;
+  const approvalEntries = Object.values(approvalRequests);
+  if (approvalEntries.length === 0) return null;
 
+  let changed = false;
   const updated = messages.map((message) => {
     let partsChanged = false;
     const parts = message.parts.map((part) => {
       if (part.type !== "tool-call") return part;
-      if (part.id !== toolCallId) return part;
-      if (part.approval) return part;
+      const approval = approvalRequests[part.id];
+      if (!approval || part.approval) return part;
       partsChanged = true;
       changed = true;
       return {
         ...part,
-        state: "approval-requested" as ToolCallState,
+        state: "approval-requested" as const,
         approval: {
-          id: approvalId,
+          id: approval.id,
           needsApproval: true,
         },
       };
@@ -53,36 +45,52 @@ function ensureApprovalMetadata(
 
 function collectPendingApprovals(
   messages: UIMessage[],
-  manualApprovalResponses: Record<string, boolean>
+  approvalRequests: Record<string, ApprovalInfo>
 ): ApprovalInfo[] {
   const approvals: ApprovalInfo[] = [];
+  const pendingToolCallIds = new Set<string>();
+  const resolvedToolCallIds = new Set<string>();
+  const toolResultIds = new Set<string>();
+
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type === "tool-result") {
+        toolResultIds.add(part.toolCallId);
+      }
+    }
+  }
 
   for (const message of messages) {
     for (const part of message.parts) {
       if (part.type !== "tool-call") continue;
-      if (part.approval?.needsApproval) {
-        if (part.approval.approved !== undefined) continue;
-        approvals.push({
-          id: part.approval.id,
-          toolCallId: part.id,
-          toolName: part.name,
-          input: parseToolArguments(part.arguments),
-        });
-        continue;
+      if (part.approval?.approved !== undefined) {
+        resolvedToolCallIds.add(part.id);
+      }
+      if (toolResultIds.has(part.id)) {
+        resolvedToolCallIds.add(part.id);
       }
 
-      if (!APPROVAL_REQUIRED_TOOLS.has(part.name)) continue;
-      if (part.state !== "input-complete") continue;
-      if (manualApprovalResponses[part.id] !== undefined) continue;
-      if (hasToolResult(messages, part.id)) continue;
+      const needsApproval =
+        part.state === "approval-requested" || part.approval?.needsApproval;
+      if (!needsApproval) continue;
+      if (part.approval?.approved !== undefined) continue;
+      if (toolResultIds.has(part.id)) continue;
 
       approvals.push({
-        id: part.id,
+        id: part.approval?.id ?? part.id,
         toolCallId: part.id,
         toolName: part.name,
         input: parseToolArguments(part.arguments),
       });
+      pendingToolCallIds.add(part.id);
     }
+  }
+
+  for (const approval of Object.values(approvalRequests)) {
+    if (pendingToolCallIds.has(approval.toolCallId)) continue;
+    if (resolvedToolCallIds.has(approval.toolCallId)) continue;
+    if (toolResultIds.has(approval.toolCallId)) continue;
+    approvals.push(approval);
   }
 
   return approvals;
@@ -93,8 +101,8 @@ export function useChatSession() {
   const [pendingClientTool, setPendingClientTool] =
     useState<ClientToolInfo | null>(null);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
-  const [manualApprovalResponses, setManualApprovalResponses] = useState<
-    Record<string, boolean>
+  const [approvalRequests, setApprovalRequests] = useState<
+    Record<string, ApprovalInfo>
   >({});
 
   const continuationRef = useRef<ContinuationState>({
@@ -154,6 +162,18 @@ export function useChatSession() {
         runId: chunk.id,
       });
     }
+
+    if (chunk.type === "approval-requested") {
+      setApprovalRequests((prev) => ({
+        ...prev,
+        [chunk.toolCallId]: {
+          id: chunk.approval?.id ?? chunk.toolCallId,
+          toolCallId: chunk.toolCallId,
+          toolName: chunk.toolName,
+          input: chunk.input,
+        },
+      }));
+    }
   }, []);
 
   const {
@@ -184,9 +204,16 @@ export function useChatSession() {
     }
   }, [messages, messageRunIdMap, currentRunId]);
 
+  useEffect(() => {
+    const updated = applyApprovalRequestsToMessages(messages, approvalRequests);
+    if (updated) {
+      setMessages(updated);
+    }
+  }, [messages, approvalRequests, setMessages]);
+
   const pendingApprovals = useMemo(
-    () => collectPendingApprovals(messages, manualApprovalResponses),
-    [messages, manualApprovalResponses]
+    () => collectPendingApprovals(messages, approvalRequests),
+    [messages, approvalRequests]
   );
   const pendingApprovalByToolCallId = useMemo(() => {
     const lookup: Record<string, ApprovalInfo> = {};
@@ -205,6 +232,15 @@ export function useChatSession() {
         [approvalId]: approved,
       },
     };
+  }, []);
+
+  const clearApprovalRequest = useCallback((toolCallId: string) => {
+    setApprovalRequests((prev) => {
+      if (!prev[toolCallId]) return prev;
+      const next = { ...prev };
+      delete next[toolCallId];
+      return next;
+    });
   }, []);
 
   const queueToolResult = useCallback(
@@ -236,21 +272,22 @@ export function useChatSession() {
         (approval) => approval.id === approvalId
       );
       if (approvalInfo) {
-        const updated = ensureApprovalMetadata(
-          messages,
-          approvalInfo.toolCallId,
-          approvalInfo.id
-        );
+        const updated = applyApprovalRequestsToMessages(messages, {
+          [approvalInfo.toolCallId]: approvalInfo,
+        });
         if (updated) {
           setMessages(updated);
         }
       }
-      setManualApprovalResponses((prev) => ({ ...prev, [approvalId]: true }));
+      if (approvalInfo) {
+        clearApprovalRequest(approvalInfo.toolCallId);
+      }
       queueApproval(approvalId, true);
       await addToolApprovalResponse({ id: approvalId, approved: true });
     },
     [
       addToolApprovalResponse,
+      clearApprovalRequest,
       messages,
       pendingApprovals,
       queueApproval,
@@ -264,21 +301,22 @@ export function useChatSession() {
         (approval) => approval.id === approvalId
       );
       if (approvalInfo) {
-        const updated = ensureApprovalMetadata(
-          messages,
-          approvalInfo.toolCallId,
-          approvalInfo.id
-        );
+        const updated = applyApprovalRequestsToMessages(messages, {
+          [approvalInfo.toolCallId]: approvalInfo,
+        });
         if (updated) {
           setMessages(updated);
         }
       }
-      setManualApprovalResponses((prev) => ({ ...prev, [approvalId]: false }));
+      if (approvalInfo) {
+        clearApprovalRequest(approvalInfo.toolCallId);
+      }
       queueApproval(approvalId, false);
       await addToolApprovalResponse({ id: approvalId, approved: false });
     },
     [
       addToolApprovalResponse,
+      clearApprovalRequest,
       messages,
       pendingApprovals,
       queueApproval,

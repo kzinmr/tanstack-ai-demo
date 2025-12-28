@@ -51,6 +51,19 @@ function makeDoneChunk(
   };
 }
 
+function makeApprovalChunk(runId: string): StreamChunk {
+  return {
+    type: "approval-requested",
+    id: runId,
+    model: "test-model",
+    timestamp: 0,
+    toolCallId: "call-1",
+    toolName: "execute_sql",
+    input: { sql: "SELECT 1" },
+    approval: { id: "call-1", needsApproval: true },
+  };
+}
+
 function makeToolCallMessage(): UIMessage {
   return {
     id: "assistant-1",
@@ -80,16 +93,19 @@ beforeEach(() => {
 });
 
 describe("useChatSession", () => {
-  it("exposes pending approvals when tool_calls finish reason occurs", () => {
+  it("exposes pending approvals when approval-requested chunk arrives", () => {
     mockMessages = [makeToolCallMessage()];
     const { result } = renderHook(() => useChatSession());
 
     act(() => {
-      capturedOnChunk?.(makeDoneChunk("run-1", "tool_calls"));
+      capturedOnChunk?.(makeApprovalChunk("run-1"));
     });
 
     expect(result.current.pendingApprovals).toHaveLength(1);
     expect(result.current.pendingApprovals[0].toolCallId).toBe("call-1");
+    expect(result.current.pendingApprovals[0].input).toEqual({
+      sql: "SELECT 1",
+    });
   });
 
   it("queues approvals and consumes continuation state after approve", async () => {
@@ -97,7 +113,7 @@ describe("useChatSession", () => {
     const { result } = renderHook(() => useChatSession());
 
     act(() => {
-      capturedOnChunk?.(makeDoneChunk("run-1", "tool_calls"));
+      capturedOnChunk?.(makeApprovalChunk("run-1"));
     });
 
     await act(async () => {
@@ -108,7 +124,6 @@ describe("useChatSession", () => {
       id: "call-1",
       approved: true,
     });
-    expect(setMessages).toHaveBeenCalled();
 
     const state1 = capturedGetContinuationState?.();
     expect(state1?.runId).toBe("run-1");
