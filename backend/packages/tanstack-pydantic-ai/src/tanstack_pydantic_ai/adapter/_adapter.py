@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, ContextManager, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass
 from functools import cached_property
@@ -109,6 +109,16 @@ def _log_approval_decisions(
             denial_message=denial_message,
             override_args=override_args,
         )
+
+
+def _scoped_context(**log_context: Any) -> ContextManager[None]:
+    existing_context = get_contextvars()
+    new_context = {
+        key: value
+        for key, value in log_context.items()
+        if key not in existing_context
+    }
+    return bound_contextvars(**new_context) if new_context else nullcontext()
 
 
 OnCompleteFunc = Callable[["AgentRunResult"], Any] | None
@@ -531,13 +541,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
         log_context = {"run_id": run_id}
         if model:
             log_context["model"] = model
-        existing_context = get_contextvars()
-        new_context = {
-            key: value
-            for key, value in log_context.items()
-            if key not in existing_context
-        }
-        context = bound_contextvars(**new_context) if new_context else nullcontext()
+        context = _scoped_context(**log_context)
 
         def _agent_has_output_validators() -> bool:
             """
