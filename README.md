@@ -116,7 +116,7 @@ python scripts/e2e_hilt_smoke.py --base-url http://localhost:8000
 | Endpoint                               | Description                              |
 | -------------------------------------- | ---------------------------------------- |
 | `POST /api/chat`                       | Start/continue chat stream (HITL)        |
-| `GET /api/data/{run_id}/{artifact_id}` | Get artifact data by run and artifact ID (preview) |
+| `GET /api/data/{run_id}/{artifact_id}` | Get artifact data by run and artifact ID (preview or signed download URL) |
 | `GET /health`                          | Health check                             |
 
 ### Request Examples
@@ -215,7 +215,7 @@ tanstack-ai-demo/
 │       ├── settings.py          # Application settings
 │       ├── deps.py              # RunContext dependencies
 │       ├── db.py                # DB connection & schema
-│       ├── store/               # Artifact store
+│       ├── store/               # Run + artifact stores
 │       └── tools/               # Tool definitions (HITL enabled)
 └── frontend/
     ├── package.json

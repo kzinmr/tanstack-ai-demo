@@ -6,7 +6,7 @@ sequenceDiagram
   participant AD as TanStackAIAdapter (tanstack_pydantic_ai)
   participant AG as pydantic-ai Agent
   participant DB as Postgres
-  participant AS as ArtifactStore (/api/data)
+  participant AS as ArtifactStore (memory/S3 via /api/data)
 
   U->>FE: Send message
   FE->>BE: POST /api/chat (messages + optional run_id)

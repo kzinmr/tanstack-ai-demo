@@ -17,7 +17,8 @@ graph TB
     subgraph Backend["Backend (FastAPI)"]
         chatEndpoint["/api/chat"]
         dataEndpoint["/api/data"]
-        artifactStore["ArtifactStore (in-memory)"]
+        runStore["RunStore (memory/postgres)"]
+        artifactStore["ArtifactStore (memory/S3)"]
     end
 
     subgraph Adapter["TanStack AI Adapter"]
@@ -51,6 +52,7 @@ graph TB
     chatConnection -->|POST| chatEndpoint
     chatEndpoint -->|build adapter| adapter
     adapter -->|streaming_response| streamResponse
+    adapter -->|get/save run state| runStore
     streamResponse -->|native events| agentRun
     streamResponse -->|chunk transform| eventStream
     eventStream -->|SSE chunks| chatConnection
