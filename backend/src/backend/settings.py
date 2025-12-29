@@ -69,6 +69,52 @@ class Settings(BaseSettings):
         description="TTL in minutes for CSV export data",
     )
 
+    # Run/Artifact Store Configuration
+    run_store_backend: str = Field(
+        default="memory",
+        description="Run store backend (memory, redis, s3)",
+    )
+    artifact_store_backend: str = Field(
+        default="memory",
+        description="Artifact store backend (memory, s3)",
+    )
+
+    # Optional Redis configuration (for custom RunStore adapters)
+    redis_url: str | None = Field(
+        default=None,
+        description="Redis connection URL for run store adapters",
+    )
+
+    # S3-backed artifact store configuration
+    s3_bucket: str | None = Field(
+        default=None,
+        description="S3 bucket for artifact storage",
+    )
+    s3_prefix: str = Field(
+        default="tanstack-ai-demo",
+        description="S3 key prefix for stored artifacts",
+    )
+    s3_region: str | None = Field(
+        default=None,
+        description="AWS region for S3 client",
+    )
+    s3_endpoint_url: str | None = Field(
+        default=None,
+        description="Optional S3-compatible endpoint URL",
+    )
+    s3_use_path_style: bool = Field(
+        default=False,
+        description="Use path-style addressing for S3-compatible endpoints",
+    )
+    s3_signed_url_expires_in: int = Field(
+        default=900,
+        description="Signed URL expiration in seconds",
+    )
+    s3_preview_rows: int = Field(
+        default=200,
+        description="Number of rows to store for previews",
+    )
+
     # SQL Safety Configuration
     sql_max_limit: int = Field(
         default=1000,

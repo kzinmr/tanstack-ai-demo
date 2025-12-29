@@ -162,9 +162,9 @@ def register_sql_tools(agent: Agent[Deps, ...], settings: Settings) -> None:
         try:
             rows = await ctx.deps.conn.fetch(sql)
             df = pd.DataFrame([dict(r) for r in rows])
-            artifact = ctx.deps.artifact_store.store(ctx.deps.run_id, df)
+            artifact = ctx.deps.artifact_store.store_table(ctx.deps.run_id, df)
 
-            row_count = len(df)
+            row_count = artifact.row_count
             return _tool_result(
                 message=(
                     f"クエリを実行しました（{row_count}行）。"

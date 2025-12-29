@@ -4,7 +4,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { Button } from "@base-ui/react/button";
-import type { ClientToolInfo, ToolResultPayload } from "../types";
+import type { ArtifactData, ClientToolInfo, ToolResultPayload } from "../types";
 import { fetchArtifactData } from "../services/dataService";
 import { buildToolResultEnvelope } from "../utils/parsing";
 
@@ -85,6 +85,17 @@ function downloadCSV(
   return { filename, rowCount: rows.length };
 }
 
+function downloadSignedUrl(url: string): void {
+  const link = document.createElement("a");
+  link.href = url;
+  link.rel = "noopener";
+  link.target = "_blank";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 /**
  * Escape a value for CSV format.
  */
@@ -108,12 +119,7 @@ export function ToolInputPanel({
   onComplete,
   isLoading,
 }: ToolInputPanelProps) {
-  const [csvData, setCsvData] = useState<{
-    rows: Record<string, unknown>[];
-    columns: string[];
-    original_row_count: number;
-    exported_row_count: number;
-  } | null>(null);
+  const [artifactData, setArtifactData] = useState<ArtifactData | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isFetching, setIsFetching] = useState(false);
 
@@ -157,7 +163,7 @@ export function ToolInputPanel({
   // Fetch CSV data when clientTool changes
   useEffect(() => {
     if (!artifactId) {
-      setCsvData(null);
+      setArtifactData(null);
       setFetchError(
         clientTool ? "Missing artifact reference in tool input" : null
       );
@@ -173,8 +179,8 @@ export function ToolInputPanel({
         if (!runId) {
           throw new Error("Missing run ID for data fetch");
         }
-        const data = await fetchArtifactData(runId, artifact);
-        setCsvData(data);
+        const data = await fetchArtifactData(runId, artifact, "download");
+        setArtifactData(data);
       } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";
         setFetchError(message);
@@ -189,7 +195,7 @@ export function ToolInputPanel({
   if (!clientTool) return null;
 
   const handleExecute = () => {
-    if (!csvData) {
+    if (!artifactData) {
       const message = "No data available";
       onComplete(clientTool.toolCallId, clientTool.toolName, {
         output: buildToolResultEnvelope("CSV download failed.", {
@@ -202,7 +208,22 @@ export function ToolInputPanel({
     }
 
     try {
-      const result = downloadCSV(csvData.rows, csvData.columns, "export.csv");
+      if (artifactData.mode === "signed-url") {
+        downloadSignedUrl(artifactData.download_url);
+        onComplete(clientTool.toolCallId, clientTool.toolName, {
+          output: buildToolResultEnvelope("CSV download started.", {
+            data: { download_url: artifactData.download_url, success: true },
+          }),
+          state: "output-available",
+        });
+        return;
+      }
+
+      const result = downloadCSV(
+        artifactData.rows,
+        artifactData.columns,
+        "export.csv"
+      );
       onComplete(clientTool.toolCallId, clientTool.toolName, {
         output: buildToolResultEnvelope("CSV download completed.", {
           data: { ...result, success: true },
@@ -227,7 +248,7 @@ export function ToolInputPanel({
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 my-4">
         <div className="flex items-center gap-3">
           <Spinner className="h-6 w-6 text-blue-500" />
-          <span className="text-blue-700">Loading CSV data...</span>
+          <span className="text-blue-700">Loading export data...</span>
         </div>
       </div>
     );
@@ -242,9 +263,12 @@ export function ToolInputPanel({
     );
   }
 
-  const rowCount = csvData?.exported_row_count ?? 0;
-  const columnCount = csvData?.columns?.length ?? 0;
-  const originalCount = csvData?.original_row_count ?? rowCount;
+  const isSignedUrl = artifactData?.mode === "signed-url";
+  const inlineData =
+    artifactData && artifactData.mode !== "signed-url" ? artifactData : null;
+  const rowCount = inlineData?.exported_row_count ?? 0;
+  const columnCount = inlineData?.columns?.length ?? 0;
+  const originalCount = inlineData?.original_row_count ?? rowCount;
 
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 my-4">
@@ -267,8 +291,10 @@ export function ToolInputPanel({
         <div className="flex-1">
           <h3 className="font-medium text-blue-900">CSV Export Ready</h3>
           <p className="text-sm text-blue-700 mt-1">
-            {rowCount} rows, {columnCount} columns
-            {originalCount > rowCount && (
+            {isSignedUrl
+              ? "Download will open using a signed URL."
+              : `${rowCount} rows, ${columnCount} columns`}
+            {!isSignedUrl && originalCount > rowCount && (
               <span className="text-blue-500">
                 {" "}
                 (limited from {originalCount} rows)
