@@ -102,6 +102,15 @@ Enter this message to experience the HITL flow:
 
 > I want to aggregate yesterday's errors from `records`. You can write the SQL, but let me confirm before executing. I want to download the results as CSV, but confirm that too.
 
+### Manual E2E Smoke Test
+
+With the backend running (and an LLM provider configured), you can run a quick
+HITL smoke script:
+
+```bash
+python scripts/e2e_hilt_smoke.py --base-url http://localhost:8000
+```
+
 ### API Endpoints
 
 | Endpoint                               | Description                              |
