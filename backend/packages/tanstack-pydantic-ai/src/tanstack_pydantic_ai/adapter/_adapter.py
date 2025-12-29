@@ -17,9 +17,8 @@ from functools import cached_property
 from typing import (
     Any,
 )
-import structlog
-from structlog.contextvars import bound_contextvars, get_contextvars
 
+import structlog
 from pydantic import TypeAdapter
 from pydantic_ai import (
     Agent,
@@ -39,6 +38,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from structlog.contextvars import bound_contextvars, get_contextvars
 
 from ..shared.chunks import StreamChunk, UsageObj
 from ..shared.sse import encode_done

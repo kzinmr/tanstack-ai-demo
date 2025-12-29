@@ -14,8 +14,8 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from tanstack_pydantic_ai import TanStackAIAdapter
 from structlog.contextvars import bound_contextvars
+from tanstack_pydantic_ai import TanStackAIAdapter
 
 from .agent import get_agent
 from .db import get_db_connection

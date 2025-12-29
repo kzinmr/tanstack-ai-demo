@@ -7,7 +7,6 @@ Transforms pydantic-ai native events into TanStack StreamChunk events.
 from __future__ import annotations
 
 import json
-import structlog
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
@@ -17,6 +16,7 @@ from typing import (
     Literal,
 )
 
+import structlog
 from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturnPart,
