@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from tanstack_pydantic_ai import TanStackAIAdapter
-from structlog.contextvars import bind_contextvars, clear_contextvars
+from structlog.contextvars import bound_contextvars
 
 from .agent import get_agent
 from .db import get_db_connection
@@ -98,15 +98,13 @@ async def chat(request: Request) -> StreamingResponse:
         # IMPORTANT: keep DB connection open for the entire stream duration.
         # Otherwise tool execution (especially after HITL approval) can fail with
         # "connection is closed" when the request handler returns.
-        bind_contextvars(run_id=run_id)
-        try:
-            agent = get_agent()
-        except Exception:
-            logger.exception("Failed to construct agent", run_id=run_id)
-            clear_contextvars()
-            raise
+        with bound_contextvars(run_id=run_id):
+            try:
+                agent = get_agent()
+            except Exception:
+                logger.exception("Failed to construct agent")
+                raise
 
-        try:
             async with get_db_connection() as conn:
                 deps = Deps(
                     conn=conn, run_id=run_id, artifact_store=get_artifact_store()
@@ -120,8 +118,6 @@ async def chat(request: Request) -> StreamingResponse:
                 )
                 async for chunk in adapter.streaming_response():
                     yield chunk
-        finally:
-            clear_contextvars()
 
     return StreamingResponse(
         TanStackAIAdapter.stream_with_error_handling(

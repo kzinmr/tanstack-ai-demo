@@ -11,13 +11,14 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from functools import cached_property
 from typing import (
     Any,
 )
 import structlog
-from structlog.contextvars import bind_contextvars, get_contextvars, unbind_contextvars
+from structlog.contextvars import bound_contextvars, get_contextvars
 
 from pydantic import TypeAdapter
 from pydantic_ai import (
@@ -536,8 +537,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
             for key, value in log_context.items()
             if key not in existing_context
         }
-        if new_context:
-            bind_contextvars(**new_context)
+        context = bound_contextvars(**new_context) if new_context else nullcontext()
 
         def _agent_has_output_validators() -> bool:
             """
@@ -551,7 +551,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
                     return True
             return False
 
-        try:
+        with context:
             kwargs: dict[str, Any] = {
                 "message_history": self.message_history,
             }
@@ -591,9 +591,6 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
                         self.store.set_pending(run_id, None, model)
 
                 yield event
-        finally:
-            if new_context:
-                unbind_contextvars(*new_context.keys())
 
     async def run_stream(
         self,
