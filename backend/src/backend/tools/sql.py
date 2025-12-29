@@ -126,8 +126,7 @@ def register_sql_tools(agent: Agent[Deps, ...], settings: Settings) -> None:
             table_defs = []
             for table_name, columns in tables.items():
                 table_defs.append(
-                    "CREATE TABLE "
-                    f"{table_name} (\n{',\n'.join(columns)}\n);"
+                    f"CREATE TABLE {table_name} (\n{',\n'.join(columns)}\n);"
                 )
             schema_lines.append("Tables:\n" + "\n\n".join(table_defs))
 
@@ -166,9 +165,7 @@ def register_sql_tools(agent: Agent[Deps, ...], settings: Settings) -> None:
 
             row_count = artifact.row_count
             return _tool_result(
-                message=(
-                    f"クエリを実行しました（{row_count}行）。"
-                ),
+                message=(f"クエリを実行しました（{row_count}行）。"),
                 artifacts=[
                     {
                         "id": artifact.id,

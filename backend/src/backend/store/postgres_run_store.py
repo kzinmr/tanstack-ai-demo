@@ -67,7 +67,9 @@ class _AsyncpgRunner:
         try:
             import asyncpg
         except ImportError as exc:  # pragma: no cover - exercised at runtime
-            raise RuntimeError("asyncpg is required for PostgresRunStoreAdapter.") from exc
+            raise RuntimeError(
+                "asyncpg is required for PostgresRunStoreAdapter."
+            ) from exc
 
         self._asyncpg = asyncpg
         self._dsn = dsn

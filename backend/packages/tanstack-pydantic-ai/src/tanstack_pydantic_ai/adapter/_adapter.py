@@ -114,9 +114,7 @@ def _log_approval_decisions(
 def _scoped_context(**log_context: Any) -> ContextManager[None]:
     existing_context = get_contextvars()
     new_context = {
-        key: value
-        for key, value in log_context.items()
-        if key not in existing_context
+        key: value for key, value in log_context.items() if key not in existing_context
     }
     return bound_contextvars(**new_context) if new_context else nullcontext()
 
