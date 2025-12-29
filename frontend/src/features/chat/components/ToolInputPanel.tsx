@@ -6,6 +6,7 @@ import { useMemo, useState, useEffect } from "react";
 import { Button } from "@base-ui/react/button";
 import type { ClientToolInfo, ToolResultPayload } from "../types";
 import { fetchArtifactData } from "../services/dataService";
+import { buildToolResultEnvelope } from "../utils/parsing";
 
 interface ToolInputPanelProps {
   clientTool: ClientToolInfo | null;
@@ -191,7 +192,9 @@ export function ToolInputPanel({
     if (!csvData) {
       const message = "No data available";
       onComplete(clientTool.toolCallId, clientTool.toolName, {
-        output: { error: message, success: false },
+        output: buildToolResultEnvelope("CSV download failed.", {
+          data: { error: message, success: false },
+        }),
         state: "output-error",
         errorText: message,
       });
@@ -201,13 +204,17 @@ export function ToolInputPanel({
     try {
       const result = downloadCSV(csvData.rows, csvData.columns, "export.csv");
       onComplete(clientTool.toolCallId, clientTool.toolName, {
-        output: { ...result, success: true },
+        output: buildToolResultEnvelope("CSV download completed.", {
+          data: { ...result, success: true },
+        }),
         state: "output-available",
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unknown error";
       onComplete(clientTool.toolCallId, clientTool.toolName, {
-        output: { error: message, success: false },
+        output: buildToolResultEnvelope("CSV download failed.", {
+          data: { error: message, success: false },
+        }),
         state: "output-error",
         errorText: message,
       });

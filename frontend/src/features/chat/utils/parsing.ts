@@ -1,13 +1,20 @@
 import type { MessagePart } from "@tanstack/ai";
 
-export type ParsedToolResult = {
+export const TOOL_RESULT_ENVELOPE_VERSION = 1;
+
+export type ToolResultEnvelope = {
+  type: "tool_result";
+  version: number;
   message?: string;
   artifacts?: Array<{
     id: string;
     type?: string;
     row_count?: number;
   }>;
+  data?: Record<string, unknown>;
 };
+
+export type ParsedToolResult = ToolResultEnvelope;
 
 export function parseToolArguments(argumentsText: string): unknown {
   if (!argumentsText) return {};
@@ -30,13 +37,16 @@ export function formatToolArguments(argumentsText: string): string {
 export function parseToolResult(content: string): ParsedToolResult | null {
   if (!content) return null;
   try {
-    const parsed = JSON.parse(content) as Record<string, unknown>;
+    const parsed = JSON.parse(content);
     if (!parsed || typeof parsed !== "object") return null;
+    const payload = parsed as Record<string, unknown>;
+    if (payload.type !== "tool_result") return null;
+    if (payload.version !== TOOL_RESULT_ENVELOPE_VERSION) return null;
 
     const message =
-      typeof parsed.message === "string" ? parsed.message : undefined;
-    const artifacts = Array.isArray(parsed.artifacts)
-      ? parsed.artifacts
+      typeof payload.message === "string" ? payload.message : undefined;
+    const artifacts = Array.isArray(payload.artifacts)
+      ? payload.artifacts
           .map((item) => {
             if (!item || typeof item !== "object") return null;
             const obj = item as Record<string, unknown>;
@@ -48,15 +58,41 @@ export function parseToolResult(content: string): ParsedToolResult | null {
           })
           .filter((item): item is NonNullable<typeof item> => item !== null)
       : undefined;
+    const data =
+      payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)
+        ? (payload.data as Record<string, unknown>)
+        : undefined;
 
-    if (!message && (!artifacts || artifacts.length === 0)) {
+    if (!message && (!artifacts || artifacts.length === 0) && !data) {
       return null;
     }
 
-    return { message, artifacts };
+    return {
+      type: "tool_result",
+      version: TOOL_RESULT_ENVELOPE_VERSION,
+      message,
+      artifacts,
+      data,
+    };
   } catch {
     return null;
   }
+}
+
+export function buildToolResultEnvelope(
+  message: string,
+  options?: {
+    artifacts?: ToolResultEnvelope["artifacts"];
+    data?: ToolResultEnvelope["data"];
+  }
+): ToolResultEnvelope {
+  return {
+    type: "tool_result",
+    version: TOOL_RESULT_ENVELOPE_VERSION,
+    message,
+    artifacts: options?.artifacts,
+    data: options?.data,
+  };
 }
 
 export function extractArtifactId(parts: MessagePart[]): string | null {

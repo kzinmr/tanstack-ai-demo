@@ -10,6 +10,7 @@ export function ToolResultPartView({ part }: ToolResultPartViewProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const parsed = useMemo(() => parseToolResult(part.content), [part.content]);
   const displayText = parsed?.message ?? part.content;
+  const label = parsed ? "Tool result" : "Raw tool result";
 
   return (
     <div className="rounded-md border border-gray-200 bg-white p-2 text-xs">
@@ -31,7 +32,7 @@ export function ToolResultPartView({ part }: ToolResultPartViewProps) {
             d="M9 5l7 7-7 7"
           />
         </svg>
-        <span>Tool result</span>
+        <span>{label}</span>
       </button>
       {isExpanded && (
         <div className="whitespace-pre-wrap text-gray-700 mt-2 pl-4">

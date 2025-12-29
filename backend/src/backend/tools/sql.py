@@ -101,7 +101,7 @@ def register_sql_tools(agent: Agent[Deps, ...], settings: Settings) -> None:
             )
 
             if not column_rows:
-                return "Database Schema:\n(no tables found)"
+                return _tool_result("Database Schema:\n(no tables found)")
 
             tables: dict[str, list[str]] = {}
             for row in column_rows:
@@ -130,9 +130,12 @@ def register_sql_tools(agent: Agent[Deps, ...], settings: Settings) -> None:
                 )
             schema_lines.append("Tables:\n" + "\n\n".join(table_defs))
 
-            return "Database Schema:\n" + "\n\n".join(schema_lines)
+            return _tool_result("Database Schema:\n" + "\n\n".join(schema_lines))
         except Exception as exc:
-            return f"Failed to load schema: {exc}"
+            return _tool_result(
+                f"Failed to load schema: {exc}",
+                data={"success": False},
+            )
 
     @agent.tool(requires_approval=True)
     async def execute_sql(ctx: RunContext[Deps], sql: str) -> str:
@@ -144,11 +147,14 @@ def register_sql_tools(agent: Agent[Deps, ...], settings: Settings) -> None:
                  Always include LIMIT to prevent large result sets.
         """
         if error := validate_sql_safety(sql):
-            return error
+            return _tool_result(error, data={"success": False})
 
         sql_upper = sql.strip().upper()
         if not sql_upper.startswith("SELECT"):
-            return "Error: Only SELECT queries are allowed for safety."
+            return _tool_result(
+                "Error: Only SELECT queries are allowed for safety.",
+                data={"success": False},
+            )
 
         sql = _enforce_limit(sql, settings.sql_max_limit)
 
@@ -171,4 +177,7 @@ def register_sql_tools(agent: Agent[Deps, ...], settings: Settings) -> None:
                 ],
             )
         except Exception as exc:
-            return f"SQLの実行に失敗しました: {exc}"
+            return _tool_result(
+                f"SQLの実行に失敗しました: {exc}",
+                data={"success": False},
+            )

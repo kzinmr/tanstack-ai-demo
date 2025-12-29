@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from pydantic_ai import CallDeferred, RunContext
 
 from ..deps import Deps
+from ._common import _tool_result
 
 if TYPE_CHECKING:
     from pydantic_ai import Agent
@@ -21,9 +22,10 @@ def register_export_tools(agent: Agent[Deps, ...]) -> None:
         from /api/data/{artifact_id} endpoint.
         """
         if ctx.deps.artifact_store.get(ctx.deps.run_id, artifact_id) is None:
-            return (
+            return _tool_result(
                 "エクスポート対象のデータが見つかりませんでした。"
-                "直前にクエリを実行して結果を作成してから、もう一度CSV出力してください。"
+                "直前にクエリを実行して結果を作成してから、もう一度CSV出力してください。",
+                data={"success": False},
             )
 
         raise CallDeferred()

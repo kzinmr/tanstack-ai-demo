@@ -148,6 +148,22 @@ Enter this message to experience the HITL flow:
 | `execute_sql`    | Server     | **Yes**  | Execute SQL query      |
 | `export_csv`     | **Client** | **Yes**  | Download CSV file      |
 
+### Tool Result Envelope
+
+Tool results are returned as JSON strings with a versioned envelope. The UI
+parses this shape to extract `message` and `artifacts`; anything else is treated
+as a raw tool result.
+
+```json
+{
+  "type": "tool_result",
+  "version": 1,
+  "message": "Query executed.",
+  "artifacts": [{ "id": "a_abc123_1", "type": "table", "row_count": 10 }],
+  "data": { "success": true }
+}
+```
+
 ## Project Structure
 
 ```
