@@ -18,18 +18,8 @@ Usage:
 
 from ._adapter import TanStackAIAdapter
 from ._event_stream import TanStackEventStream
-from .request_types import (
-    RequestData,
-    ToolCallFunction,
-    ToolCallPart,
-    UIMessage,
-)
 
 __all__ = [
     "TanStackAIAdapter",
     "TanStackEventStream",
-    "RequestData",
-    "ToolCallFunction",
-    "ToolCallPart",
-    "UIMessage",
 ]

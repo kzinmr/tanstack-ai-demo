@@ -32,7 +32,7 @@ from pydantic_ai import Agent
 
 from tanstack_pydantic_ai import TanStackAIAdapter, InMemoryRunStore
 
-agent = Agent("openai:gpt-4o-mini")
+agent = Agent("openai:gpt-5-mini")
 store = InMemoryRunStore()  # For stateful continuation
 
 app = FastAPI()
@@ -91,46 +91,33 @@ async for data in TanStackAIAdapter.stream_with_error_handling(
     ...  # bytes (SSE-encoded)
 ```
 
-### Shared Components
+### Public Exports
 
 ```python
 from tanstack_pydantic_ai import (
-    # Chunk types
-    StreamChunk,
-    ContentStreamChunk,
-    ThinkingStreamChunk,
-    ToolCallStreamChunk,
-    ToolInputAvailableStreamChunk,
-    ToolResultStreamChunk,
-    ApprovalRequestedStreamChunk,
-    DoneStreamChunk,
-    ErrorStreamChunk,
-
     # Store
     InMemoryRunStore,
     RunState,
-
-    # SSE utilities
-    encode_chunk,
-    encode_done,
-    dump_chunk,
-    sse_data,
-    now_ms,
+    # Stream chunk typing
+    StreamChunk,
+    StreamChunkType,
 )
 ```
 
+Low-level chunk models, request types, and SSE helpers are internal and may change; import them from submodules if you need them (`tanstack_pydantic_ai.shared.*`, `tanstack_pydantic_ai.adapter.request_types`).
+
 ## StreamChunk Types
 
-| Type | Description |
-|------|-------------|
-| `content` | Text content with delta streaming |
-| `thinking` | Reasoning/thinking content (Claude extended thinking) |
-| `tool_call` | Function tool invocation |
-| `tool_result` | Tool execution result |
+| Type                   | Description                              |
+| ---------------------- | ---------------------------------------- |
+| `content`              | Text content with delta streaming        |
+| `done`                 | Stream completed                         |
+| `error`                | Error occurred                           |
+| `tool_call`            | Function tool invocation                 |
+| `tool_result`          | Tool execution result                    |
 | `tool-input-available` | Deferred tool ready for client execution |
-| `approval-requested` | Tool requires user approval |
-| `error` | Error occurred |
-| `done` | Stream completed |
+| `approval-requested`   | Tool requires user approval              |
+| `thinking`             | Reasoning/thinking content               |
 
 ## Stateful Continuation (HITL)
 
@@ -154,8 +141,15 @@ can be keyed by `tool_call_id` without extra mapping.
 }
 ```
 
+## Testing
+
+```sh
+cd backend
+uv run pytest packages/tanstack-pydantic-ai/tests
+```
+
 ## References
 
 - [TanStack AI StreamChunk](https://tanstack.com/ai/latest/docs/reference/type-aliases/StreamChunk)
-- [pydantic-ai Deferred Tools](https://ai.pydantic.dev/deferred-tools/)
 - [pydantic-ai UIAdapter](https://ai.pydantic.dev/ui/)
+- [pydantic-ai Deferred Tools](https://ai.pydantic.dev/deferred-tools/)

@@ -1,82 +1,27 @@
 """
 TanStack AI integration for pydantic-ai.
 
-This package provides the UIAdapter API for TanStack AI protocol integration:
+Public exports are intentionally minimal to keep the API stable:
+- TanStackAIAdapter, TanStackEventStream
+- StreamChunk, StreamChunkType
+- InMemoryRunStore, RunState
 
-- TanStackAIAdapter, TanStackEventStream classes
-- Follows pydantic-ai UIAdapter pattern
-- Built-in SSE encoding and response helpers
-
-Shared components from tanstack_pydantic_ai.shared:
-- StreamChunk types for the TanStack AI protocol
-- InMemoryRunStore for stateful continuation
-- SSE encoding utilities
+Low-level request/chunk models and SSE helpers remain available via submodules
+but are not part of the public, semver-stable API.
 """
 
-# UIAdapter API
-from .adapter import (
-    RequestData,
-    TanStackAIAdapter,
-    TanStackEventStream,
-    UIMessage,
-)
-
-# Shared: Chunk types
-from .shared.chunks import (
-    ApprovalObj,
-    ApprovalRequestedStreamChunk,
-    BaseStreamChunk,
-    ContentStreamChunk,
-    DoneStreamChunk,
-    ErrorObj,
-    ErrorStreamChunk,
-    StreamChunk,
-    StreamChunkType,
-    ThinkingStreamChunk,
-    ToolCall,
-    ToolCallFunction,
-    ToolCallStreamChunk,
-    ToolInputAvailableStreamChunk,
-    ToolResultStreamChunk,
-    UsageObj,
-)
-
-# Shared: SSE utilities
-from .shared.sse import dump_chunk, encode_chunk, encode_done, now_ms, sse_data
-
-# Shared: Store
+from .adapter import TanStackAIAdapter, TanStackEventStream
+from .shared.chunks import StreamChunk, StreamChunkType
 from .shared.store import InMemoryRunStore, RunState
 
 __all__ = [
-    # Chunk types
-    "ApprovalObj",
-    "ApprovalRequestedStreamChunk",
-    "BaseStreamChunk",
-    "ContentStreamChunk",
-    "DoneStreamChunk",
-    "ErrorObj",
-    "ErrorStreamChunk",
-    "StreamChunk",
-    "StreamChunkType",
-    "ThinkingStreamChunk",
-    "ToolCall",
-    "ToolCallFunction",
-    "ToolCallStreamChunk",
-    "ToolInputAvailableStreamChunk",
-    "ToolResultStreamChunk",
-    "UsageObj",
     # Store
     "InMemoryRunStore",
     "RunState",
-    # SSE utilities
-    "dump_chunk",
-    "encode_chunk",
-    "encode_done",
-    "now_ms",
-    "sse_data",
     # UIAdapter API
-    "RequestData",
     "TanStackAIAdapter",
     "TanStackEventStream",
-    "UIMessage",
+    # Chunk types
+    "StreamChunk",
+    "StreamChunkType",
 ]
