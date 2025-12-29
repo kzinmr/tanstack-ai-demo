@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
   "pydantic",
   "pydantic-ai",
+  "structlog",
 ]
 
 [project.optional-dependencies]

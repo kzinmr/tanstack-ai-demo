@@ -16,6 +16,8 @@ from functools import cached_property
 from typing import (
     Any,
 )
+import structlog
+from structlog.contextvars import bind_contextvars, get_contextvars, unbind_contextvars
 
 from pydantic import TypeAdapter
 from pydantic_ai import (
@@ -45,6 +47,7 @@ from .request_types import RequestData, UIMessage
 
 # Type adapter for parsing request data
 request_data_ta = TypeAdapter(RequestData)
+logger = structlog.get_logger(__name__)
 
 
 def _convert_approvals(
@@ -70,6 +73,41 @@ def _convert_approvals(
         else:
             result[tool_call_id] = False
     return result
+
+
+def _log_approval_decisions(
+    run_id: str,
+    approvals: dict[str, bool | dict[str, Any]],
+) -> None:
+    for tool_call_id, value in approvals.items():
+        approved: bool | None = None
+        kind = None
+        denial_message = None
+        override_args = None
+
+        if isinstance(value, bool):
+            approved = value
+        elif isinstance(value, dict):
+            kind = value.get("kind")
+            if kind == "tool-approved":
+                approved = True
+                override_args = value.get("override_args")
+            elif kind == "tool-denied":
+                approved = False
+                denial_message = value.get("message")
+
+        if approved is None:
+            continue
+
+        logger.info(
+            "tool_approval_response",
+            run_id=run_id,
+            toolCallId=tool_call_id,
+            approved=approved,
+            kind=kind,
+            denial_message=denial_message,
+            override_args=override_args,
+        )
 
 
 OnCompleteFunc = Callable[["AgentRunResult"], Any] | None
@@ -489,6 +527,17 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
 
         run_id = self.run_id
         model = self.run_input.model
+        log_context = {"run_id": run_id}
+        if model:
+            log_context["model"] = model
+        existing_context = get_contextvars()
+        new_context = {
+            key: value
+            for key, value in log_context.items()
+            if key not in existing_context
+        }
+        if new_context:
+            bind_contextvars(**new_context)
 
         def _agent_has_output_validators() -> bool:
             """
@@ -502,43 +551,49 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
                     return True
             return False
 
-        kwargs: dict[str, Any] = {
-            "message_history": self.message_history,
-        }
-        # Only pass output_type when it's safe to do so (i.e. no output validators).
-        # Prefer configuring Agent(output_type=...) at construction time.
-        if not _agent_has_output_validators():
-            kwargs["output_type"] = [str, DeferredToolRequests]
-        if model:
-            kwargs["model"] = model
-        if self.deps is not None:
-            kwargs["deps"] = self.deps
+        try:
+            kwargs: dict[str, Any] = {
+                "message_history": self.message_history,
+            }
+            # Only pass output_type when it's safe to do so (i.e. no output validators).
+            # Prefer configuring Agent(output_type=...) at construction time.
+            if not _agent_has_output_validators():
+                kwargs["output_type"] = [str, DeferredToolRequests]
+            if model:
+                kwargs["model"] = model
+            if self.deps is not None:
+                kwargs["deps"] = self.deps
 
-        # Handle continuation with deferred tool results
-        if self.is_continuation:
-            deferred = DeferredToolResults(
-                approvals=_convert_approvals(self.run_input.approvals),
-                calls=self.run_input.tool_results,
-            )
-            kwargs["deferred_tool_results"] = deferred
-            # For continuation, use empty prompt
-            prompt = ""
-        else:
-            prompt = self.user_prompt
+            # Handle continuation with deferred tool results
+            if self.is_continuation:
+                if self.run_input.approvals:
+                    _log_approval_decisions(run_id, self.run_input.approvals)
+                deferred = DeferredToolResults(
+                    approvals=_convert_approvals(self.run_input.approvals),
+                    calls=self.run_input.tool_results,
+                )
+                kwargs["deferred_tool_results"] = deferred
+                # For continuation, use empty prompt
+                prompt = ""
+            else:
+                prompt = self.user_prompt
 
-        async for event in self.agent.run_stream_events(prompt, **kwargs):
-            # Capture AgentRunResultEvent and save to store
-            if self.store and isinstance(event, AgentRunResultEvent):
-                result = event.result
-                # Save message history for continuation
-                self.store.set_messages(run_id, result.all_messages(), model)
-                # Save pending deferred tools if any
-                if isinstance(result.output, DeferredToolRequests):
-                    self.store.set_pending(run_id, result.output, model)
-                else:
-                    self.store.set_pending(run_id, None, model)
+            async for event in self.agent.run_stream_events(prompt, **kwargs):
+                # Capture AgentRunResultEvent and save to store
+                if self.store and isinstance(event, AgentRunResultEvent):
+                    result = event.result
+                    # Save message history for continuation
+                    self.store.set_messages(run_id, result.all_messages(), model)
+                    # Save pending deferred tools if any
+                    if isinstance(result.output, DeferredToolRequests):
+                        self.store.set_pending(run_id, result.output, model)
+                    else:
+                        self.store.set_pending(run_id, None, model)
 
-            yield event
+                yield event
+        finally:
+            if new_context:
+                unbind_contextvars(*new_context.keys())
 
     async def run_stream(
         self,

@@ -7,7 +7,7 @@ Transforms pydantic-ai native events into TanStack StreamChunk events.
 from __future__ import annotations
 
 import json
-import logging
+import structlog
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
@@ -59,7 +59,7 @@ if TYPE_CHECKING:
 
 FinishReason = Literal["stop", "tool_calls", "length", "content_filter"] | None
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _normalize_finish_reason(
@@ -148,10 +148,10 @@ class TanStackEventStream[AgentDepsT, OutputDataT]:
     async def on_error(self, error: Exception) -> AsyncIterator[StreamChunk]:
         """Called when an error occurs during streaming."""
         logger.error(
-            "TanStack stream error (run_id=%s model=%s): %s",
-            self.message_id,
-            self._model_name,
-            str(error),
+            "tanstack_stream_error",
+            run_id=self.message_id,
+            model=self._model_name,
+            error=str(error),
             exc_info=error,
         )
         # Emit error separately; keep finishReason valid for DoneStreamChunk.
@@ -246,10 +246,10 @@ class TanStackEventStream[AgentDepsT, OutputDataT]:
         """Handle function tool call event."""
         part: ToolCallPart = event.part
         logger.info(
-            "Tool call (run_id=%s): %s id=%s",
-            self.message_id,
-            part.tool_name,
-            part.tool_call_id,
+            "tool_call",
+            run_id=self.message_id,
+            toolCallId=part.tool_call_id,
+            tool_name=part.tool_name,
         )
         yield ToolCallStreamChunk(
             id=self.message_id,
@@ -279,10 +279,10 @@ class TanStackEventStream[AgentDepsT, OutputDataT]:
                 content = json.dumps(content, ensure_ascii=False)
             preview = content if len(content) <= 200 else (content[:200] + "…")
             logger.info(
-                "Tool result (run_id=%s): id=%s preview=%r",
-                self.message_id,
-                event.result.tool_call_id,
-                preview,
+                "tool_result",
+                run_id=self.message_id,
+                toolCallId=event.result.tool_call_id,
+                preview=preview,
             )
             yield ToolResultStreamChunk(
                 id=self.message_id,
@@ -309,6 +309,12 @@ class TanStackEventStream[AgentDepsT, OutputDataT]:
         - pydantic-ai uses tool_call_id for approval map key
         - https://ai.pydantic.dev/deferred-tools/
         """
+        logger.info(
+            "tool_approval_requested",
+            run_id=self.message_id,
+            toolCallId=tool_call_id,
+            tool_name=tool_name,
+        )
         yield ApprovalRequestedStreamChunk(
             id=self.message_id,
             model=self._model_name,
