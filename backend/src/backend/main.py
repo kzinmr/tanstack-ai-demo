@@ -27,6 +27,7 @@ from .store import get_artifact_store, get_run_store
 # Get settings
 settings = get_settings()
 configure_logging()
+logger = get_logger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -46,8 +47,6 @@ app.add_middleware(
 
 # Run store for HITL continuation (swap via settings)
 store = get_run_store()
-
-logger = get_logger(__name__)
 
 
 def _sse_headers() -> dict[str, str]:
