@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     # Run/Artifact Store Configuration
     run_store_backend: str = Field(
         default="memory",
-        description="Run store backend (memory, redis, s3)",
+        description="Run store backend (memory, postgres)",
     )
     artifact_store_backend: str = Field(
         default="memory",
@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     redis_url: str | None = Field(
         default=None,
         description="Redis connection URL for run store adapters",
+    )
+
+    run_store_database_url: PostgresDsn | None = Field(
+        default=None,
+        description="PostgreSQL URL for run store (defaults to DATABASE_URL)",
     )
 
     # S3-backed artifact store configuration

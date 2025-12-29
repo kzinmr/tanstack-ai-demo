@@ -159,6 +159,11 @@ Defaults:
 - `RUN_STORE_BACKEND=memory`
 - `ARTIFACT_STORE_BACKEND=memory`
 
+Postgres run store (persist run state across restarts):
+
+- `RUN_STORE_BACKEND=postgres`
+- `RUN_STORE_DATABASE_URL=...` (optional; defaults to `DATABASE_URL`)
+
 S3 artifact store (signed URL downloads):
 
 - `ARTIFACT_STORE_BACKEND=s3`
