@@ -9,6 +9,7 @@ import { MessageBubble } from "./components/MessageBubble";
 import { PendingApprovalsPanel } from "./components/PendingApprovalsPanel";
 import { ToolInputPanel } from "./components/ToolInputPanel";
 import { useChatSession } from "./hooks/useChatSession";
+import type { ApprovalInfo } from "./types";
 
 export function ChatPage() {
   const {
@@ -29,19 +30,37 @@ export function ChatPage() {
 
   const [visibleError, setVisibleError] = useState<Error | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [lastApproval, setLastApproval] = useState<ApprovalInfo | null>(null);
   const hasPendingApprovals = pendingApprovals.length > 0;
   const currentApproval = useMemo(
     () => pendingApprovals[0] ?? null,
     [pendingApprovals]
   );
+  const approvalsForPanel = useMemo(() => {
+    if (hasPendingApprovals) return pendingApprovals;
+    if (isLoading && lastApproval) return [lastApproval];
+    return [];
+  }, [hasPendingApprovals, pendingApprovals, isLoading, lastApproval]);
+  const isProcessingApproval =
+    !hasPendingApprovals && !!lastApproval && isLoading;
 
   useEffect(() => {
     setVisibleError(error ?? null);
   }, [error]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pendingClientTool, currentApproval]);
+
+  useEffect(() => {
+    if (hasPendingApprovals) {
+      setLastApproval(pendingApprovals[0] ?? null);
+      return;
+    }
+    if (!isLoading) {
+      setLastApproval(null);
+    }
+  }, [hasPendingApprovals, pendingApprovals, isLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,15 +147,16 @@ export function ChatPage() {
         </div>
       </main>
 
-      <div className="border-t bg-gray-50/95 backdrop-blur-sm">
+      <div className="bg-gray-50/95 backdrop-blur-sm">
         <PendingApprovalsPanel
-          approvals={pendingApprovals}
+          approvals={approvalsForPanel}
           onApprove={approve}
           onDeny={deny}
           isLoading={isLoading}
+          isProcessing={isProcessingApproval}
         />
         {/* Input form */}
-        <footer className="bg-white px-4 py-3">
+        <footer className="border-t bg-white px-4 py-3">
           <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex gap-3">
             <div className="flex-1">
               <Input
