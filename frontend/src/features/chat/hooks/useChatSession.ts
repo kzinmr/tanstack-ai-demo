@@ -43,6 +43,28 @@ function applyApprovalRequestsToMessages(
   return changed ? updated : null;
 }
 
+// Keep approval-required tool calls in a terminal state after output so auto-continue doesn't stall.
+function normalizeToolCallStates(messages: UIMessage[]): UIMessage[] | null {
+  let changed = false;
+  const updated = messages.map((message) => {
+    let partsChanged = false;
+    const parts = message.parts.map((part) => {
+      if (part.type !== "tool-call") return part;
+      if (!part.approval || part.approval.approved === undefined) return part;
+      if (part.output === undefined) return part;
+      if (part.state === "approval-responded") return part;
+      partsChanged = true;
+      changed = true;
+      return {
+        ...part,
+        state: "approval-responded" as const,
+      };
+    });
+    return partsChanged ? { ...message, parts } : message;
+  });
+  return changed ? updated : null;
+}
+
 function collectPendingApprovals(
   messages: UIMessage[],
   approvalRequests: Record<string, ApprovalInfo>
@@ -205,9 +227,23 @@ export function useChatSession() {
   }, [messages, messageRunIdMap, currentRunId]);
 
   useEffect(() => {
-    const updated = applyApprovalRequestsToMessages(messages, approvalRequests);
-    if (updated) {
-      setMessages(updated);
+    let nextMessages = messages;
+    let changed = false;
+    const approvalsApplied = applyApprovalRequestsToMessages(
+      nextMessages,
+      approvalRequests
+    );
+    if (approvalsApplied) {
+      nextMessages = approvalsApplied;
+      changed = true;
+    }
+    const normalized = normalizeToolCallStates(nextMessages);
+    if (normalized) {
+      nextMessages = normalized;
+      changed = true;
+    }
+    if (changed) {
+      setMessages(nextMessages);
     }
   }, [messages, approvalRequests, setMessages]);
 
