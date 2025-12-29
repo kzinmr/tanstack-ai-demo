@@ -14,21 +14,6 @@ if TYPE_CHECKING:
 
 def register_data_tools(agent: Agent[Deps, ...]) -> None:
     @agent.tool
-    async def display(ctx: RunContext[Deps], artifact_id: str, rows: int = 5) -> str:
-        """
-        Display the first N rows of a stored artifact.
-
-        Args:
-            artifact_id: Artifact ID to display
-            rows: Number of rows to display (default: 5, max: 20)
-        """
-        rows = min(rows, 20)
-        df = ctx.deps.artifact_store.get_dataframe(ctx.deps.run_id, artifact_id)
-        if df is None:
-            raise ModelRetry(f"Error: {artifact_id} is not a valid artifact reference.")
-        return f"Contents (first {rows} rows):\n{df.head(rows).to_string()}"
-
-    @agent.tool
     async def run_duckdb(ctx: RunContext[Deps], artifact_id: str, sql: str) -> str:
         """
         Run a DuckDB SQL query on a stored DataFrame.

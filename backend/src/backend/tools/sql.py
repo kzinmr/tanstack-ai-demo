@@ -158,12 +158,9 @@ def register_sql_tools(agent: Agent[Deps, ...], settings: Settings) -> None:
             artifact = ctx.deps.artifact_store.store(ctx.deps.run_id, df)
 
             row_count = len(df)
-            preview_rows = min(5, row_count)
-            preview = df.head(preview_rows).to_string()
             return _tool_result(
                 message=(
-                    f"クエリを実行しました（{row_count}行）。\n\n"
-                    f"プレビュー（先頭 {preview_rows} 行）:\n{preview}"
+                    f"クエリを実行しました（{row_count}行）。"
                 ),
                 artifacts=[
                     {
