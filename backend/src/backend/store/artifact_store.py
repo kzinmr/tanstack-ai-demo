@@ -7,7 +7,6 @@ A single global store that can be referenced across HITL continuation requests.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any
 
 import pandas as pd
 
