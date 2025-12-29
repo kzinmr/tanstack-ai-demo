@@ -5,6 +5,7 @@ Run state storage for stateful continuation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from pydantic_ai import DeferredToolRequests, ModelMessage
 
@@ -18,7 +19,23 @@ class RunState:
     model: str | None = None
 
 
-class InMemoryRunStore:
+class RunStorePort(Protocol):
+    """Interface for storing run state across requests."""
+
+    def get(self, run_id: str) -> RunState | None: ...
+
+    def set_messages(
+        self, run_id: str, messages: list[ModelMessage], model: str | None
+    ) -> RunState: ...
+
+    def set_pending(
+        self, run_id: str, pending: DeferredToolRequests | None, model: str | None
+    ) -> RunState: ...
+
+    def clear(self, run_id: str) -> None: ...
+
+
+class InMemoryRunStore(RunStorePort):
     """
     In-memory storage for agent run states.
 

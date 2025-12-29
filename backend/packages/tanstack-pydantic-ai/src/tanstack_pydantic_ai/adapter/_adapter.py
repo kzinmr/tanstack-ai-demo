@@ -39,7 +39,7 @@ from pydantic_ai.messages import (
 
 from ..shared.chunks import StreamChunk, UsageObj
 from ..shared.sse import encode_done
-from ..shared.store import InMemoryRunStore
+from ..shared.store import RunStorePort
 from ._event_stream import TanStackEventStream
 from .request_types import RequestData, UIMessage
 
@@ -126,7 +126,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
     run_input: RequestData
     accept: str | None = None
     deps: AgentDepsT | None = None
-    store: InMemoryRunStore | None = None
+    store: RunStorePort | None = None
 
     # ─────────────────────────────────────────────────────────────────
     # Static helpers
@@ -212,7 +212,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
         *,
         accept: str | None = None,
         deps: AgentDepsT | None = None,
-        store: InMemoryRunStore | None = None,
+        store: RunStorePort | None = None,
     ) -> TanStackAIAdapter[AgentDepsT, OutputDataT]:
         """
         Create adapter from HTTP request body.
@@ -222,7 +222,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
             body: Raw request body bytes
             accept: Optional Accept header value
             deps: Optional agent dependencies
-            store: Optional run store for stateful continuation
+            store: Optional RunStorePort for stateful continuation
 
         Note:
             If run_id is not provided in the request, a new one is generated.
