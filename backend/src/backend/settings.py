@@ -74,9 +74,21 @@ class Settings(BaseSettings):
         default="memory",
         description="Run store backend (memory, postgres)",
     )
+    run_store_ttl_minutes: int = Field(
+        default=60,
+        description="TTL in minutes for run state (memory/postgres)",
+    )
+    run_store_max_messages: int = Field(
+        default=200,
+        description="Maximum messages to retain per run",
+    )
     artifact_store_backend: str = Field(
         default="memory",
         description="Artifact store backend (memory, s3)",
+    )
+    artifact_store_max_rows: int = Field(
+        default=1000,
+        description="Maximum rows to retain per artifact (memory store)",
     )
 
     # Optional Redis configuration (for custom RunStore adapters)
