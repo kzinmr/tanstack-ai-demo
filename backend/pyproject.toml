@@ -15,6 +15,7 @@ dependencies = [
     "asyncpg",
     "pandas",
     "tanstack-pydantic-ai",
+    "structlog",
 ]
 
 [dependency-groups]

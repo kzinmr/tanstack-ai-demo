@@ -8,7 +8,6 @@ This module provides:
 
 from __future__ import annotations
 
-import logging
 import uuid
 from collections.abc import AsyncIterator
 
@@ -16,15 +15,19 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from tanstack_pydantic_ai import TanStackAIAdapter
+from structlog.contextvars import bound_contextvars
 
 from .agent import get_agent
 from .db import get_db_connection
 from .deps import Deps
+from .logging import configure_logging, get_logger
 from .settings import get_settings
 from .store import get_artifact_store, get_run_store
 
 # Get settings
 settings = get_settings()
+configure_logging()
+logger = get_logger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -44,8 +47,6 @@ app.add_middleware(
 
 # Run store for HITL continuation (swap via settings)
 store = get_run_store()
-
-logger = logging.getLogger(__name__)
 
 
 def _sse_headers() -> dict[str, str]:
@@ -96,23 +97,26 @@ async def chat(request: Request) -> StreamingResponse:
         # IMPORTANT: keep DB connection open for the entire stream duration.
         # Otherwise tool execution (especially after HITL approval) can fail with
         # "connection is closed" when the request handler returns.
-        try:
-            agent = get_agent()
-        except Exception:
-            logger.exception("Failed to construct agent")
-            raise
+        with bound_contextvars(run_id=run_id):
+            try:
+                agent = get_agent()
+            except Exception:
+                logger.exception("Failed to construct agent")
+                raise
 
-        async with get_db_connection() as conn:
-            deps = Deps(conn=conn, run_id=run_id, artifact_store=get_artifact_store())
-            adapter = TanStackAIAdapter.from_request(
-                agent=agent,
-                body=body,
-                accept=accept,
-                deps=deps,
-                store=store,
-            )
-            async for chunk in adapter.streaming_response():
-                yield chunk
+            async with get_db_connection() as conn:
+                deps = Deps(
+                    conn=conn, run_id=run_id, artifact_store=get_artifact_store()
+                )
+                adapter = TanStackAIAdapter.from_request(
+                    agent=agent,
+                    body=body,
+                    accept=accept,
+                    deps=deps,
+                    store=store,
+                )
+                async for chunk in adapter.streaming_response():
+                    yield chunk
 
     return StreamingResponse(
         TanStackAIAdapter.stream_with_error_handling(
