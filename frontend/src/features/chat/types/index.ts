@@ -5,12 +5,26 @@ export type ContinuationState = {
   toolResults: Record<string, unknown>;
 };
 
-export interface ArtifactData {
+export type ArtifactDataInline = {
+  mode?: "inline";
   rows: Record<string, unknown>[];
   columns: string[];
   original_row_count: number;
   exported_row_count: number;
-}
+};
+
+export type ArtifactDataSignedUrl = {
+  mode: "signed-url";
+  download_url: string;
+  expires_in_seconds?: number;
+  method?: string;
+  headers?: Record<string, string>;
+  columns?: string[];
+  original_row_count?: number;
+  exported_row_count?: number;
+};
+
+export type ArtifactData = ArtifactDataInline | ArtifactDataSignedUrl;
 
 export type ClientToolInfo = {
   toolCallId: string;

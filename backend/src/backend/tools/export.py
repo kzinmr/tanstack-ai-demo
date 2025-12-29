@@ -19,9 +19,9 @@ def register_export_tools(agent: Agent[Deps, ...]) -> None:
 
         This tool is executed in the browser (client-side).
         The client will receive the data reference and fetch the actual data
-        from /api/data/{artifact_id} endpoint.
+        from /api/data/{run_id}/{artifact_id} (optionally with mode=download).
         """
-        if ctx.deps.artifact_store.get(ctx.deps.run_id, artifact_id) is None:
+        if ctx.deps.artifact_store.get_metadata(ctx.deps.run_id, artifact_id) is None:
             return _tool_result(
                 "エクスポート対象のデータが見つかりませんでした。"
                 "直前にクエリを実行して結果を作成してから、もう一度CSV出力してください。",

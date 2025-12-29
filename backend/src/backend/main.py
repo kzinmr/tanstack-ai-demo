@@ -12,16 +12,16 @@ import logging
 import uuid
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from tanstack_pydantic_ai import InMemoryRunStore, TanStackAIAdapter
+from tanstack_pydantic_ai import TanStackAIAdapter
 
 from .agent import get_agent
 from .db import get_db_connection
 from .deps import Deps
 from .settings import get_settings
-from .store import get_artifact_store
+from .store import get_artifact_store, get_run_store
 
 # Get settings
 settings = get_settings()
@@ -42,8 +42,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory store for HITL continuation
-store = InMemoryRunStore()
+# Run store for HITL continuation (swap via settings)
+store = get_run_store()
 
 logger = logging.getLogger(__name__)
 
@@ -123,30 +123,49 @@ async def chat(request: Request) -> StreamingResponse:
 
 
 @app.get("/api/data/{run_id}/{artifact_id:path}")
-async def get_csv_data(run_id: str, artifact_id: str) -> dict:
+async def get_csv_data(
+    run_id: str,
+    artifact_id: str,
+    mode: str = Query(default="preview", pattern="^(preview|download)$"),
+) -> dict:
     """
     Get CSV export data by run_id and artifact ID.
 
     This endpoint is called by the frontend after receiving a tool-input-available
     chunk for the export_csv tool. The artifact_id is included in the tool args,
-    and the run_id is used to scope the data.
+    and the run_id is used to scope the data. Use mode=download to return a
+    signed URL when the artifact store supports it.
 
     Args:
         run_id: The run ID that produced this dataset
         artifact_id: The artifact identifier
 
     Returns:
-        JSON with rows, columns, and row count information
+        JSON with rows/columns or a signed download URL
     """
-    artifact = get_artifact_store().get(run_id, artifact_id)
-    if artifact is None:
+    artifact_store = get_artifact_store()
+
+    if mode == "download":
+        download = artifact_store.get_download(run_id, artifact_id)
+        if download is not None:
+            return {
+                "mode": "signed-url",
+                "download_url": download.url,
+                "expires_in_seconds": download.expires_in_seconds,
+                "method": download.method,
+                "headers": download.headers,
+            }
+
+    preview = artifact_store.get_preview(run_id, artifact_id)
+    if preview is None:
         raise HTTPException(status_code=404, detail="Artifact not found or expired")
 
     return {
-        "rows": artifact.rows,
-        "columns": artifact.columns,
-        "original_row_count": artifact.original_row_count,
-        "exported_row_count": len(artifact.rows),
+        "mode": "inline",
+        "rows": preview.rows,
+        "columns": preview.columns,
+        "original_row_count": preview.original_row_count,
+        "exported_row_count": preview.exported_row_count,
     }
 
 

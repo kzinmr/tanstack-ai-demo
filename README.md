@@ -116,7 +116,7 @@ python scripts/e2e_hilt_smoke.py --base-url http://localhost:8000
 | Endpoint                               | Description                              |
 | -------------------------------------- | ---------------------------------------- |
 | `POST /api/chat`                       | Start/continue chat stream (HITL)        |
-| `GET /api/data/{run_id}/{artifact_id}` | Get artifact data by run and artifact ID |
+| `GET /api/data/{run_id}/{artifact_id}` | Get artifact data by run and artifact ID (preview) |
 | `GET /health`                          | Health check                             |
 
 ### Request Examples
@@ -148,6 +148,28 @@ python scripts/e2e_hilt_smoke.py --base-url http://localhost:8000
   }
 }
 ```
+
+### Storage Backends (Ports)
+
+The backend uses ports for run state and artifact storage so you can swap in
+shared stores in production.
+
+Defaults:
+
+- `RUN_STORE_BACKEND=memory`
+- `ARTIFACT_STORE_BACKEND=memory`
+
+S3 artifact store (signed URL downloads):
+
+- `ARTIFACT_STORE_BACKEND=s3`
+- `S3_BUCKET=...`
+- `S3_PREFIX=tanstack-ai-demo`
+- `S3_REGION=...`
+- `S3_SIGNED_URL_EXPIRES_IN=900`
+- Requires `boto3` installed in the backend environment.
+
+When `mode=download` is passed to `/api/data/{run_id}/{artifact_id}`, the backend
+returns a signed URL instead of inline rows if the artifact store supports it.
 
 ## Tools
 

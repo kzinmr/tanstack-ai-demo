@@ -9,10 +9,10 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { ArtifactData } from "../types";
+import type { ArtifactDataInline } from "../types";
 import { fetchArtifactData } from "../services/dataService";
 
-type ArtifactPreviewState = ArtifactData & { artifactId: string };
+type ArtifactPreviewState = ArtifactDataInline & { artifactId: string };
 
 interface ArtifactPreviewProps {
   runId?: string;
@@ -39,7 +39,10 @@ export function ArtifactPreview({ runId, artifactId }: ArtifactPreviewProps) {
 
     (async () => {
       try {
-        const data = await fetchArtifactData(runId, artifactId);
+        const data = await fetchArtifactData(runId, artifactId, "preview");
+        if (data.mode === "signed-url") {
+          throw new Error("Preview is not available for this artifact.");
+        }
         if (!cancelled) {
           setPreview({ artifactId, ...data });
         }

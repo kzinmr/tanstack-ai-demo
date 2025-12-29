@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import asyncpg
 
-from .store import ArtifactStore
+from .ports import ArtifactStorePort
 
 
 @dataclass
@@ -26,4 +26,4 @@ class Deps:
 
     conn: asyncpg.Connection
     run_id: str
-    artifact_store: ArtifactStore
+    artifact_store: ArtifactStorePort
