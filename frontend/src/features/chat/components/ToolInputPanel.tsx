@@ -123,6 +123,27 @@ export function ToolInputPanel({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isFetching, setIsFetching] = useState(false);
 
+  const resolveArtifactId = (value: unknown): string | null => {
+    if (!value || typeof value !== "object") return null;
+    const obj = value as Record<string, unknown>;
+    const direct =
+      typeof obj.artifact_id === "string"
+        ? obj.artifact_id
+        : typeof obj.artifactId === "string"
+          ? obj.artifactId
+          : null;
+    if (direct) return direct;
+    const nested = obj.input;
+    if (nested && typeof nested === "object") {
+      const nestedObj = nested as Record<string, unknown>;
+      if (typeof nestedObj.artifact_id === "string")
+        return nestedObj.artifact_id;
+      if (typeof nestedObj.artifactId === "string")
+        return nestedObj.artifactId;
+    }
+    return null;
+  };
+
   const artifactId = useMemo((): string | null => {
     if (!clientTool?.input) return null;
     const raw = clientTool.input as unknown;
@@ -133,32 +154,17 @@ export function ToolInputPanel({
       if (!trimmed) return null;
       // JSON string { "artifact_id": "a_..." }
       try {
-        const parsed = JSON.parse(trimmed) as any;
-        if (parsed && typeof parsed.artifact_id === "string")
-          return parsed.artifact_id;
-        if (parsed && typeof parsed.artifactId === "string")
-          return parsed.artifactId;
+        const parsed = JSON.parse(trimmed) as unknown;
+        const parsedId = resolveArtifactId(parsed);
+        if (parsedId) return parsedId;
       } catch {
         // ignore
       }
       return trimmed;
     }
 
-    if (typeof raw === "object" && raw !== null) {
-      const obj: any = raw;
-      if (typeof obj.artifact_id === "string") return obj.artifact_id;
-      if (typeof obj.artifactId === "string") return obj.artifactId;
-      // In case nested shapes appear, try common fallbacks.
-      if (obj.input) {
-        if (typeof obj.input.artifact_id === "string")
-          return obj.input.artifact_id;
-        if (typeof obj.input.artifactId === "string")
-          return obj.input.artifactId;
-      }
-    }
-
-    return null;
-  }, [clientTool?.toolCallId, clientTool?.input]);
+    return resolveArtifactId(raw);
+  }, [clientTool?.input]);
 
   // Fetch CSV data when clientTool changes
   useEffect(() => {
@@ -190,7 +196,7 @@ export function ToolInputPanel({
     };
 
     fetchData();
-  }, [clientTool?.toolCallId, clientTool?.runId, artifactId]);
+  }, [clientTool, artifactId]);
 
   if (!clientTool) return null;
 
