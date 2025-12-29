@@ -18,7 +18,14 @@ from typing import (
 )
 
 from pydantic import TypeAdapter
-from pydantic_ai import Agent, DeferredToolRequests, DeferredToolResults
+from pydantic_ai import (
+    Agent,
+    AgentRunResultEvent,
+    DeferredToolRequests,
+    DeferredToolResults,
+    ToolApproved,
+    ToolDenied,
+)
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -38,6 +45,31 @@ from .request_types import RequestData, UIMessage
 
 # Type adapter for parsing request data
 request_data_ta = TypeAdapter(RequestData)
+
+
+def _convert_approvals(
+    approvals: dict[str, bool | dict[str, Any]],
+) -> dict[str, bool | ToolApproved | ToolDenied]:
+    """Convert request approvals to pydantic-ai DeferredToolResults format."""
+    result: dict[str, bool | ToolApproved | ToolDenied] = {}
+    for tool_call_id, value in approvals.items():
+        if isinstance(value, bool):
+            result[tool_call_id] = value
+        elif isinstance(value, dict):
+            kind = value.get("kind")
+            if kind == "tool-approved":
+                result[tool_call_id] = ToolApproved(
+                    override_args=value.get("override_args")
+                )
+            elif kind == "tool-denied":
+                result[tool_call_id] = ToolDenied(
+                    message=value.get("message", "The tool call was denied.")
+                )
+            else:
+                result[tool_call_id] = False
+        else:
+            result[tool_call_id] = False
+    return result
 
 
 OnCompleteFunc = Callable[["AgentRunResult"], Any] | None
@@ -454,7 +486,6 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
         This provides the raw event stream before transformation.
         Also saves results to store for stateful continuation.
         """
-        from pydantic_ai import AgentRunResultEvent
 
         run_id = self.run_id
         model = self.run_input.model
@@ -486,7 +517,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
         # Handle continuation with deferred tool results
         if self.is_continuation:
             deferred = DeferredToolResults(
-                approvals=self.run_input.approvals,
+                approvals=_convert_approvals(self.run_input.approvals),
                 calls=self.run_input.tool_results,
             )
             kwargs["deferred_tool_results"] = deferred
@@ -520,7 +551,6 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
         Args:
             on_complete: Optional callback when agent run completes
         """
-        from pydantic_ai import AgentRunResultEvent
 
         event_stream = self.build_event_stream()
         model_name = self.run_input.model or "unknown"

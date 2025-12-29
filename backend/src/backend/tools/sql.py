@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 from pydantic_ai import RunContext
+
 from ..deps import Deps
 from ..settings import Settings
 from ._common import _tool_result

@@ -141,6 +141,63 @@ can be keyed by `tool_call_id` without extra mapping.
 }
 ```
 
+### Approval Formats
+
+The `approvals` field supports multiple formats, mapped to pydantic-ai's `ToolApproved` and `ToolDenied` types:
+
+| Format | Type | Description |
+|--------|------|-------------|
+| `true` | boolean | Simple approval - execute the tool as-is |
+| `false` | boolean | Simple denial - tool execution blocked |
+| `{"kind": "tool-approved", ...}` | object | Approval with optional argument override |
+| `{"kind": "tool-denied", ...}` | object | Denial with message for the LLM |
+
+#### ToolApproved with `override_args`
+
+Approve the tool call but **modify the arguments** before execution:
+
+```json
+{
+  "approvals": {
+    "tool_call_id_1": {
+      "kind": "tool-approved",
+      "override_args": {
+        "path": "/safe/backup/file.txt"
+      }
+    }
+  }
+}
+```
+
+**Use cases:**
+- **File operations**: Change target path to a safer location
+- **Email sending**: Modify recipients or subject before sending
+- **API calls**: Adjust parameters (amounts, quantities, limits)
+- **Database operations**: Add WHERE conditions for safety
+
+#### ToolDenied with `message`
+
+Deny the tool call and **explain why** to the LLM:
+
+```json
+{
+  "approvals": {
+    "tool_call_id_2": {
+      "kind": "tool-denied",
+      "message": "Budget exceeded. Please suggest alternatives under $500."
+    }
+  }
+}
+```
+
+**Use cases:**
+- **Purchase approval**: "Over budget, try under $100"
+- **Scheduling**: "That day is a holiday, use the next business day"
+- **Permissions**: "User lacks admin privileges for this action"
+- **Policy violations**: "Cannot include confidential data"
+
+The LLM receives the denial message and can propose alternatives based on the feedback.
+
 ## Testing
 
 ```sh
