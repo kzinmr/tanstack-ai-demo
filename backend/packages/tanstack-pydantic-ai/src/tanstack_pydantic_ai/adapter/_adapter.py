@@ -10,8 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator, Callable, ContextManager, Mapping, Sequence
-from contextlib import nullcontext
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from functools import cached_property
 from typing import (
@@ -111,7 +111,7 @@ def _log_approval_decisions(
         )
 
 
-def _scoped_context(**log_context: Any) -> ContextManager[None]:
+def _scoped_context(**log_context: Any) -> AbstractContextManager[None]:
     existing_context = get_contextvars()
     new_context = {
         key: value for key, value in log_context.items() if key not in existing_context
