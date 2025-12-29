@@ -8,12 +8,12 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 )
 
-from backend.store import ArtifactStore  # noqa: E402
+from backend.store import InMemoryArtifactStore  # noqa: E402
 
 
 class ArtifactStoreTests(unittest.TestCase):
     def test_store_and_get(self) -> None:
-        store = ArtifactStore(ttl_minutes=30)
+        store = InMemoryArtifactStore(ttl_minutes=30)
         df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
 
         artifact = store.store("run123", df)
@@ -25,7 +25,7 @@ class ArtifactStoreTests(unittest.TestCase):
         self.assertEqual(fetched.original_row_count, 2)
 
     def test_run_id_namespace(self) -> None:
-        store = ArtifactStore(ttl_minutes=30)
+        store = InMemoryArtifactStore(ttl_minutes=30)
         df = pd.DataFrame({"x": [1]})
 
         artifact_a = store.store("run_a", df)
@@ -35,7 +35,7 @@ class ArtifactStoreTests(unittest.TestCase):
         self.assertIsNone(store.get("run_b", artifact_a.id))
 
     def test_get_dataframe(self) -> None:
-        store = ArtifactStore(ttl_minutes=30)
+        store = InMemoryArtifactStore(ttl_minutes=30)
         df = pd.DataFrame({"x": [1, 2]})
         artifact = store.store("run123", df)
 
@@ -44,7 +44,7 @@ class ArtifactStoreTests(unittest.TestCase):
         self.assertEqual(list(loaded.columns), ["x"])
 
     def test_ttl_expiration(self) -> None:
-        store = ArtifactStore(ttl_minutes=0)
+        store = InMemoryArtifactStore(ttl_minutes=0)
         df = pd.DataFrame({"x": [1]})
         artifact = store.store("run123", df)
 

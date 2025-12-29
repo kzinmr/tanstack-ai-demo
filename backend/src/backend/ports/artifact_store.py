@@ -4,7 +4,8 @@ Port definition for artifact storage.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Protocol
 
 import pandas as pd
@@ -17,6 +18,20 @@ class ArtifactRef:
     id: str
     type: str
     row_count: int
+
+
+@dataclass
+class Artifact:
+    """Stored artifact payload for a single run."""
+
+    id: str
+    type: str
+    run_id: str
+    dataframe: pd.DataFrame | None
+    rows: list[dict[str, Any]]
+    columns: list[str]
+    original_row_count: int
+    created_at: datetime = field(default_factory=datetime.now)
 
 
 @dataclass(frozen=True)

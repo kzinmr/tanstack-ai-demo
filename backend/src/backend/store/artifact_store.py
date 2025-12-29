@@ -6,31 +6,22 @@ A single global store that can be referenced across HITL continuation requests.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
 
+from ..ports import (
+    Artifact,
+    ArtifactDownload,
+    ArtifactPreview,
+    ArtifactRef,
+    ArtifactStorePort,
+)
 from ..settings import get_settings
-from ..ports import ArtifactDownload, ArtifactPreview, ArtifactRef, ArtifactStorePort
 
 
-@dataclass
-class Artifact:
-    """Stored artifact payload for a single run."""
-
-    id: str
-    type: str
-    run_id: str
-    dataframe: pd.DataFrame | None
-    rows: list[dict[str, Any]]
-    columns: list[str]
-    original_row_count: int
-    created_at: datetime = field(default_factory=datetime.now)
-
-
-class ArtifactStore:
+class InMemoryArtifactStore(ArtifactStorePort):
     """In-memory artifact store scoped by run_id with TTL eviction."""
 
     def __init__(self, ttl_minutes: int = 30):
@@ -163,27 +154,28 @@ _artifact_store: ArtifactStorePort | None = None
 def get_artifact_store() -> ArtifactStorePort:
     """Get or create the configured ArtifactStore instance."""
     global _artifact_store
-    if _artifact_store is None:
-        settings = get_settings()
-        backend = settings.artifact_store_backend
-        if backend == "s3":
-            from .s3_artifact_store import S3ArtifactStore
+    if _artifact_store is not None:
+        return _artifact_store
 
-            _artifact_store = S3ArtifactStore(
-                bucket=settings.s3_bucket or "",
-                prefix=settings.s3_prefix,
-                region=settings.s3_region,
-                url_expires_in=settings.s3_signed_url_expires_in,
-                preview_rows=settings.s3_preview_rows,
-                endpoint_url=settings.s3_endpoint_url,
-                use_path_style=settings.s3_use_path_style,
-            )
-        elif backend == "memory":
-            _artifact_store = ArtifactStore(
-                ttl_minutes=settings.csv_data_ttl_minutes
-            )
-        else:
-            raise RuntimeError(
-                f"Unsupported artifact store backend: {backend}."
-            )
-    return _artifact_store
+    settings = get_settings()
+    backend = settings.artifact_store_backend
+    if backend == "memory":
+        _artifact_store = InMemoryArtifactStore(
+            ttl_minutes=settings.csv_data_ttl_minutes
+        )
+        return _artifact_store
+    elif backend == "s3":
+        from .s3_artifact_store import S3ArtifactStore
+
+        _artifact_store = S3ArtifactStore(
+            bucket=settings.s3_bucket or "",
+            prefix=settings.s3_prefix,
+            region=settings.s3_region,
+            url_expires_in=settings.s3_signed_url_expires_in,
+            preview_rows=settings.s3_preview_rows,
+            endpoint_url=settings.s3_endpoint_url,
+            use_path_style=settings.s3_use_path_style,
+        )
+        return _artifact_store
+
+    raise RuntimeError(f"Unsupported artifact store backend: {backend}.")

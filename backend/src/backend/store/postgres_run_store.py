@@ -5,8 +5,10 @@ PostgreSQL-backed run store adapter.
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
-from typing import Any, Coroutine
+from collections.abc import Coroutine
+from typing import Any
 
 from pydantic import TypeAdapter
 from pydantic_ai import DeferredToolRequests, ModelMessage
@@ -111,6 +113,16 @@ class PostgresRunStoreAdapter(RunStorePort):
             raise ValueError("Postgres run store requires a database URL.")
         self._runner = _AsyncpgRunner(dsn)
 
+    @staticmethod
+    def _to_json(payload: Any) -> str:
+        return json.dumps(payload, ensure_ascii=False)
+
+    @classmethod
+    def _maybe_json(cls, payload: Any) -> str | None:
+        if payload is None:
+            return None
+        return cls._to_json(payload)
+
     def _row_to_state(
         self,
         row: Any,
@@ -130,8 +142,17 @@ class PostgresRunStoreAdapter(RunStorePort):
         pending_payload = row["pending"]
         model = row["model"]
 
-        messages = _MESSAGES_ADAPTER.validate_python(messages_payload or [])
-        pending = _PENDING_ADAPTER.validate_python(pending_payload)
+        if isinstance(messages_payload, str):
+            messages = _MESSAGES_ADAPTER.validate_json(messages_payload)
+        else:
+            messages = _MESSAGES_ADAPTER.validate_python(messages_payload or [])
+
+        if pending_payload is None:
+            pending = None
+        elif isinstance(pending_payload, str):
+            pending = _PENDING_ADAPTER.validate_json(pending_payload)
+        else:
+            pending = _PENDING_ADAPTER.validate_python(pending_payload)
         return RunState(messages=messages, pending=pending, model=model)
 
     def get(self, run_id: str) -> RunState | None:
@@ -144,7 +165,9 @@ class PostgresRunStoreAdapter(RunStorePort):
         self, run_id: str, messages: list[ModelMessage], model: str | None
     ) -> RunState:
         payload = _MESSAGES_ADAPTER.dump_python(messages, mode="json")
-        row = self._runner.fetchrow(_UPSERT_MESSAGES_SQL, run_id, model, payload)
+        row = self._runner.fetchrow(
+            _UPSERT_MESSAGES_SQL, run_id, model, self._to_json(payload)
+        )
         return self._row_to_state(
             row,
             fallback_messages=messages,
@@ -163,8 +186,8 @@ class PostgresRunStoreAdapter(RunStorePort):
             _UPSERT_PENDING_SQL,
             run_id,
             model,
-            messages_payload,
-            pending_payload,
+            self._to_json(messages_payload),
+            self._maybe_json(pending_payload),
         )
         return self._row_to_state(
             row,

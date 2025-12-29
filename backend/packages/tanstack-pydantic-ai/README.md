@@ -33,7 +33,7 @@ from pydantic_ai import Agent
 from tanstack_pydantic_ai import TanStackAIAdapter, InMemoryRunStore
 
 agent = Agent("openai:gpt-5-mini")
-store = InMemoryRunStore()  # For stateful continuation
+store = InMemoryRunStore()  # For stateful continuation (any RunStorePort works)
 
 app = FastAPI()
 
@@ -96,6 +96,7 @@ async for data in TanStackAIAdapter.stream_with_error_handling(
 ```python
 from tanstack_pydantic_ai import (
     # Store
+    RunStorePort,
     InMemoryRunStore,
     RunState,
     # Stream chunk typing

@@ -23,7 +23,7 @@ from .chunks import (
     UsageObj,
 )
 from .sse import dump_chunk, encode_chunk, encode_done, now_ms, sse_data
-from .store import InMemoryRunStore, RunState
+from .store import InMemoryRunStore, RunState, RunStorePort
 
 __all__ = [
     # Chunk types
@@ -52,4 +52,5 @@ __all__ = [
     # Store
     "InMemoryRunStore",
     "RunState",
+    "RunStorePort",
 ]

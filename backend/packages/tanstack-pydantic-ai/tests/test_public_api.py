@@ -4,6 +4,7 @@ def test_public_api_exports() -> None:
     expected = {
         "TanStackAIAdapter",
         "TanStackEventStream",
+        "RunStorePort",
         "InMemoryRunStore",
         "RunState",
         "StreamChunk",
