@@ -13,7 +13,6 @@ dependencies = [
     "pydantic-ai",
     "pydantic-settings",
     "asyncpg",
-    "duckdb",
     "pandas",
     "tanstack-pydantic-ai",
 ]
