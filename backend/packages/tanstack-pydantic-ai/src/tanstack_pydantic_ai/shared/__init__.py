@@ -1,8 +1,7 @@
 """
 Shared components for TanStack AI integration.
 
-This module contains common types and utilities used by both
-the functional API and UIAdapter API.
+This module contains common types and utilities used by the UIAdapter API.
 """
 
 from .chunks import (

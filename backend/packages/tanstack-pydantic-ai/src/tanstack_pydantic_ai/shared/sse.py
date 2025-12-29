@@ -21,8 +21,12 @@ def sse_data(payload: str) -> str:
 
 
 def dump_chunk(chunk: StreamChunk) -> str:
-    """Serialize StreamChunk to JSON string."""
-    return json.dumps(chunk.model_dump(exclude_none=True), ensure_ascii=False)
+    """Serialize StreamChunk to JSON string.
+
+    Uses by_alias=True to output camelCase field names (e.g., toolCallId)
+    as required by the TanStack AI protocol.
+    """
+    return json.dumps(chunk.model_dump(by_alias=True), ensure_ascii=False)
 
 
 def encode_chunk(chunk: StreamChunk) -> str:

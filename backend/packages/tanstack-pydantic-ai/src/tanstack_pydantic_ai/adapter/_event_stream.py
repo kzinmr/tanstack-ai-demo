@@ -38,7 +38,7 @@ from ..shared.chunks import (
     ToolResultStreamChunk,
     UsageObj,
 )
-from ..shared.sse import now_ms
+from ..shared.sse import encode_chunk, now_ms
 from .request_types import RequestData
 
 if TYPE_CHECKING:
@@ -124,8 +124,7 @@ class TanStackEventStream[AgentDepsT, OutputDataT]:
 
     def encode_event(self, event: StreamChunk) -> str:
         """Encode a StreamChunk as SSE data frame."""
-        payload = json.dumps(event.model_dump(by_alias=True), ensure_ascii=False)
-        return f"data: {payload}\n\n"
+        return encode_chunk(event)
 
     # ─────────────────────────────────────────────────────────────────
     # Lifecycle hooks

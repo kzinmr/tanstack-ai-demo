@@ -48,19 +48,10 @@ async def chat(request: Request):
         adapter.streaming_response(),
         headers=dict(adapter.response_headers),
     )
-
-@app.post("/api/chat/continue")
-async def chat_continue(request: Request):
-    adapter = TanStackAIAdapter.from_request(
-        agent=agent,
-        body=await request.body(),
-        store=store,
-    )
-    return StreamingResponse(
-        adapter.streaming_response(),
-        headers=dict(adapter.response_headers),
-    )
 ```
+
+Continuation requests can be sent to the same endpoint with `run_id` and
+`tool_results`/`approvals` in the request body.
 
 ## API Reference
 
@@ -90,6 +81,14 @@ async for chunk in adapter.run_stream():
 # Full SSE response
 async for data in adapter.streaming_response():
     ...  # bytes (SSE-encoded)
+
+# Optional error handling helpers
+async for data in TanStackAIAdapter.stream_with_error_handling(
+    adapter.streaming_response(),
+    model="unknown",
+    run_id=adapter.run_id,
+):
+    ...  # bytes (SSE-encoded)
 ```
 
 ### Shared Components
@@ -101,6 +100,7 @@ from tanstack_pydantic_ai import (
     ContentStreamChunk,
     ThinkingStreamChunk,
     ToolCallStreamChunk,
+    ToolInputAvailableStreamChunk,
     ToolResultStreamChunk,
     ApprovalRequestedStreamChunk,
     DoneStreamChunk,
@@ -140,6 +140,9 @@ For Human-in-the-Loop flows with deferred tools:
 2. **Response chunks** include `id` field (= `run_id`)
 3. **Continuation request** sends `run_id` + `tool_results`/`approvals`
 4. **Server loads history** from store and continues
+
+Note: this adapter emits `approval.id` as the tool call ID so client approvals
+can be keyed by `tool_call_id` without extra mapping.
 
 ```python
 # Continuation request format
