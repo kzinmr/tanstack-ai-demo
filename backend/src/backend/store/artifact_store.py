@@ -23,10 +23,11 @@ from ..settings import get_settings
 class InMemoryArtifactStore(ArtifactStorePort):
     """In-memory artifact store scoped by run_id with TTL eviction."""
 
-    def __init__(self, ttl_minutes: int = 30):
+    def __init__(self, ttl_minutes: int = 30, max_rows: int | None = None):
         self._store: dict[str, Artifact] = {}
         self._ttl = timedelta(minutes=ttl_minutes)
         self._run_counters: dict[str, int] = {}
+        self._max_rows = max_rows if max_rows and max_rows > 0 else None
 
     @staticmethod
     def _composite_key(run_id: str, artifact_id: str) -> str:
@@ -51,16 +52,19 @@ class InMemoryArtifactStore(ArtifactStorePort):
 
         artifact_id = self._generate_artifact_id(run_id)
         df_serializable = self._serialize_dataframe(df)
+        original_row_count = len(df_serializable)
+        if self._max_rows is not None and original_row_count > self._max_rows:
+            df_serializable = df_serializable.head(self._max_rows)
         rows = df_serializable.to_dict(orient="records")
         columns = list(df_serializable.columns)
         artifact = Artifact(
             id=artifact_id,
             type=type,
             run_id=run_id,
-            dataframe=df,
+            dataframe=df_serializable,
             rows=rows,
             columns=columns,
-            original_row_count=len(df),
+            original_row_count=original_row_count,
         )
         self._store[self._composite_key(run_id, artifact_id)] = artifact
         return artifact
@@ -160,7 +164,8 @@ def get_artifact_store() -> ArtifactStorePort:
     backend = settings.artifact_store_backend
     if backend == "memory":
         _artifact_store = InMemoryArtifactStore(
-            ttl_minutes=settings.csv_data_ttl_minutes
+            ttl_minutes=settings.csv_data_ttl_minutes,
+            max_rows=settings.artifact_store_max_rows,
         )
         return _artifact_store
     elif backend == "s3":
