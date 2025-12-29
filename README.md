@@ -10,6 +10,7 @@ This demo showcases a SQL analysis agent that requires user approval before exec
 - **Client-side Tool Execution**: CSV export runs in the browser
 - **SSE Streaming**: TanStack AI compatible real-time responses
 - **Continuation**: Agent resumes processing after approval
+- **Dynamic Schema Preview**: `preview_schema` introspects the current database schema
 
 ## Architecture
 
@@ -29,16 +30,20 @@ This demo showcases a SQL analysis agent that requires user approval before exec
                                         └─────────────────┘
 ```
 
+See [flow-overview.md](./flow-overview.md) in detail.
+
 ## Demo Scenario
 
 1. User requests: "Aggregate yesterday's error logs and download as CSV"
-2. Agent generates SQL and calls `execute_sql` tool
-3. **Approval modal** appears, user reviews SQL and clicks Approve
-4. SQL executes, results stored as `Out[1]`
-5. Agent calls `export_csv` tool
-6. **Approval modal** → Approve → **CSV download panel** appears
+2. Agent generates SQL and calls `execute_sql` tool (as [Server Tools](https://tanstack.com/ai/latest/docs/guides/server-tools))
+3. Approval card appears inline, user reviews SQL and clicks Approve
+4. SQL executes, results stored as an artifact and the UI shows a preview
+5. Agent calls `export_csv` tool (as [Client Tools](https://tanstack.com/ai/latest/docs/guides/client-tools))
+6. Approval card → Approve → CSV download panel appears
 7. User clicks "Download CSV" → browser downloads CSV file
 8. Agent displays completion message
+
+See [happy-path.md](./happy-path.md) in detail.
 
 ## Setup
 
@@ -99,11 +104,11 @@ Enter this message to experience the HITL flow:
 
 ### API Endpoints
 
-| Endpoint                             | Description                              |
-| ------------------------------------ | ---------------------------------------- |
-| `POST /api/chat`                     | Start/continue chat stream (HITL)        |
+| Endpoint                               | Description                              |
+| -------------------------------------- | ---------------------------------------- |
+| `POST /api/chat`                       | Start/continue chat stream (HITL)        |
 | `GET /api/data/{run_id}/{artifact_id}` | Get artifact data by run and artifact ID |
-| `GET /health`                        | Health check                             |
+| `GET /health`                          | Health check                             |
 
 ### Request Examples
 
@@ -137,13 +142,11 @@ Enter this message to experience the HITL flow:
 
 ## Tools
 
-| Tool             | Execution  | Approval | Description                    |
-| ---------------- | ---------- | -------- | ------------------------------ |
-| `preview_schema` | Server     | No       | Display DB schema              |
-| `execute_sql`    | Server     | **Yes**  | Execute SQL query              |
-| `display`        | Server     | No       | Show data preview              |
-| `run_duckdb`     | Server     | No       | Run analytics SQL on DataFrame |
-| `export_csv`     | **Client** | **Yes**  | Download CSV file              |
+| Tool             | Execution  | Approval | Description            |
+| ---------------- | ---------- | -------- | ---------------------- |
+| `preview_schema` | Server     | No       | Preview live DB schema |
+| `execute_sql`    | Server     | **Yes**  | Execute SQL query      |
+| `export_csv`     | **Client** | **Yes**  | Download CSV file      |
 
 ## Project Structure
 
@@ -171,23 +174,14 @@ tanstack-ai-demo/
         └── features/chat/
             ├── ChatPage.tsx       # Main chat UI
             ├── chatConnection.ts  # TanStack AI connection adapter
-            ├── components/        # UI components (ApprovalModal, etc.)
-            ├── hooks/             # Custom hooks
+            ├── components/        # UI components
+            ├── hooks/             # Custom hooks (TanStack AI useChat wrapper)
             ├── services/          # API services
             ├── types/             # TypeScript types
             └── utils/             # Utility functions
 ```
 
 ## Tech Stack
-
-- [tanstack-pydantic-ai](https://github.com/kzinmr/tanstack-pydantic-ai) - TanStack AI compatible adapter
-
-### Backend
-
-- [pydantic-ai](https://ai.pydantic.dev/) - AI agent framework
-- [FastAPI](https://fastapi.tiangolo.com/) - Web framework
-- [asyncpg](https://github.com/MagicStack/asyncpg) - PostgreSQL driver
-- [DuckDB](https://duckdb.org/) - Data analytics
 
 ### Frontend
 
@@ -196,13 +190,39 @@ tanstack-ai-demo/
 - [BaseUI](https://baseweb.design/) - UI components
 - [TailwindCSS](https://tailwindcss.com/) - Styling
 
+### Backend
+
+- [Pydantic AI](https://ai.pydantic.dev/) - AI agent framework
+- [FastAPI](https://fastapi.tiangolo.com/) - Web framework
+- [asyncpg](https://github.com/MagicStack/asyncpg) - PostgreSQL driver
+
+### UI Adapter for Agents
+
+- [tanstack-pydantic-ai](https://github.com/kzinmr/tanstack-pydantic-ai) - TanStack AI compatible adapter
+
+This package is the “protocol glue”:
+
+- It parses incoming TanStack AI-style requests (messages + optional `run_id`, approvals, tool_results).
+- It calls [pydantic-ai’s event streaming APIs](https://ai.pydantic.dev/agents/#streaming-all-events).
+- It converts pydantic-ai events into TanStack AI [StreamChunks](https://tanstack.com/ai/latest/docs/reference/type-aliases/StreamChunk), and emits SSE frames.
+- It stores per-run state so a run can pause (approval / client tool) and resume (via [Deferred Tools](https://ai.pydantic.dev/deferred-tools/); deferring tool execution and resuming with tool results).
+
+This general approach matches pydantic-ai’s UI integration concepts: you can create an adapter layer responsible for turning agent runs into UI-facing events and handling re-entrancy/continuations. ([pydantic_ai.ui](https://ai.pydantic.dev/api/ui/base/))
+
+**Important internal separation to preserve:**
+
+- **Protocol transformation** (pydantic-ai events → TanStack StreamChunks) should remain in the adapter layer.
+- **Business logic** (SQL safety, export behavior, artifact shaping) should remain in backend app `code/tools`.
+
 ## Related Documentation
 
-- [pydantic-ai Deferred Tools](https://ai.pydantic.dev/deferred-tools/)
 - [TanStack AI Docs](https://tanstack.com/ai/latest/docs)
-- Related pydantic-ai agent examples:
-  - [sql-gen](https://ai.pydantic.dev/examples/sql-gen/)
-  - [data-analyst](https://ai.pydantic.dev/examples/data-analyst/)
+- [Pydantic AI Agents](https://ai.pydantic.dev/agents/)
+
+Related agent examples:
+
+- [sql-gen](https://ai.pydantic.dev/examples/sql-gen/): clear schema grounding, safe query patterns
+- [data-analyst](https://ai.pydantic.dev/examples/data-analyst/): artifact-like workflows over datasets (passed via [dependencies](https://ai.pydantic.dev/dependencies/))
 
 ## License
 
