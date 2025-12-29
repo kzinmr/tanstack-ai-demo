@@ -10,6 +10,7 @@ interface ToolCallPartViewProps {
   onApprove?: (approvalId: string) => void;
   onDeny?: (approvalId: string) => void;
   isLoading?: boolean;
+  showInlineApprovalActions?: boolean;
 }
 
 export function ToolCallPartView({
@@ -18,6 +19,7 @@ export function ToolCallPartView({
   onApprove,
   onDeny,
   isLoading = false,
+  showInlineApprovalActions = true,
 }: ToolCallPartViewProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -29,6 +31,7 @@ export function ToolCallPartView({
   const approvalInput =
     pendingApproval?.input ?? parseToolArguments(part.arguments);
   const hasApprovalRequest = needsApproval || !!pendingApproval;
+  const showInlineActions = showInlineApprovalActions;
 
   let statusLabel: string = part.state;
   if (hasApprovalRequest) {
@@ -88,7 +91,7 @@ export function ToolCallPartView({
         )}
       </div>
 
-      {isPendingApproval && onApprove && onDeny && approvalId && (
+      {isPendingApproval && onApprove && onDeny && approvalId && showInlineActions && (
         <ApprovalCard
           approvalId={approvalId}
           toolName={part.name}
@@ -97,6 +100,11 @@ export function ToolCallPartView({
           onDeny={onDeny}
           isLoading={isLoading}
         />
+      )}
+      {isPendingApproval && !showInlineActions && (
+        <div className="mt-2 text-xs text-amber-700">
+          Approval pending. Use the action bar below to approve or deny.
+        </div>
       )}
     </div>
   );

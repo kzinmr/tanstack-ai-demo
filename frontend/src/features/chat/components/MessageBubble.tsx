@@ -12,6 +12,7 @@ interface MessageBubbleProps {
   onApprove?: (approvalId: string) => void;
   onDeny?: (approvalId: string) => void;
   isLoading?: boolean;
+  showInlineApprovalActions?: boolean;
 }
 
 export function MessageBubble({
@@ -21,6 +22,7 @@ export function MessageBubble({
   onApprove,
   onDeny,
   isLoading,
+  showInlineApprovalActions,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const artifactId = useMemo(
@@ -49,6 +51,7 @@ export function MessageBubble({
                 onApprove={onApprove}
                 onDeny={onDeny}
                 isLoading={isLoading}
+                showInlineApprovalActions={showInlineApprovalActions}
               />
             ))
           )}

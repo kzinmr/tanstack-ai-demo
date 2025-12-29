@@ -9,6 +9,7 @@ interface MessagePartViewProps {
   onApprove?: (approvalId: string) => void;
   onDeny?: (approvalId: string) => void;
   isLoading?: boolean;
+  showInlineApprovalActions?: boolean;
 }
 
 export function MessagePartView({
@@ -17,6 +18,7 @@ export function MessagePartView({
   onApprove,
   onDeny,
   isLoading,
+  showInlineApprovalActions,
 }: MessagePartViewProps) {
   if (part.type === "text") {
     return <div className="text-sm whitespace-pre-wrap">{part.content}</div>;
@@ -39,6 +41,7 @@ export function MessagePartView({
         onApprove={onApprove}
         onDeny={onDeny}
         isLoading={isLoading}
+        showInlineApprovalActions={showInlineApprovalActions}
       />
     );
   }

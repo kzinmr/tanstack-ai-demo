@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "@base-ui/react/input";
 import { Button } from "@base-ui/react/button";
 import { MessageBubble } from "./components/MessageBubble";
+import { PendingApprovalsPanel } from "./components/PendingApprovalsPanel";
 import { ToolInputPanel } from "./components/ToolInputPanel";
 import { useChatSession } from "./hooks/useChatSession";
 
@@ -28,6 +29,7 @@ export function ChatPage() {
 
   const [visibleError, setVisibleError] = useState<Error | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasPendingApprovals = pendingApprovals.length > 0;
   const currentApproval = useMemo(
     () => pendingApprovals[0] ?? null,
     [pendingApprovals]
@@ -109,6 +111,7 @@ export function ChatPage() {
                 onApprove={approve}
                 onDeny={deny}
                 isLoading={isLoading}
+                showInlineApprovalActions={!hasPendingApprovals}
               />
             ))
           )}
@@ -125,47 +128,53 @@ export function ChatPage() {
         </div>
       </main>
 
-      {/* Input form */}
-      <footer className="border-t bg-white px-4 py-3">
-        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex gap-3">
-          <div className="flex-1">
-            <Input
-              value={inputText}
-              onChange={(e) => setInputText(e.currentTarget.value)}
-              placeholder="Type a message..."
-              disabled={isLoading || pendingApprovals.length > 0}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
-            />
-          </div>
-          <Button
-            type="submit"
-            disabled={
-              !inputText.trim() || pendingApprovals.length > 0 || isLoading
-            }
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {isLoading && (
-              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
-              </svg>
-            )}
-            Send
-          </Button>
-        </form>
-      </footer>
+      <div className="border-t bg-gray-50/95 backdrop-blur-sm">
+        <PendingApprovalsPanel
+          approvals={pendingApprovals}
+          onApprove={approve}
+          onDeny={deny}
+          isLoading={isLoading}
+        />
+        {/* Input form */}
+        <footer className="bg-white px-4 py-3">
+          <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex gap-3">
+            <div className="flex-1">
+              <Input
+                value={inputText}
+                onChange={(e) => setInputText(e.currentTarget.value)}
+                placeholder="Type a message..."
+                disabled={isLoading || hasPendingApprovals}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={!inputText.trim() || hasPendingApprovals || isLoading}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {isLoading && (
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    fill="none"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              )}
+              Send
+            </Button>
+          </form>
+        </footer>
+      </div>
     </div>
   );
 }
