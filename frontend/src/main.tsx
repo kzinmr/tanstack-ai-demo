@@ -1,21 +1,24 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { aiDevtoolsPlugin } from '@tanstack/react-ai-devtools'
-import { TanStackDevtools } from '@tanstack/react-devtools'
-import './index.css'
-import App from './App.tsx'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { aiDevtoolsPlugin } from "@tanstack/react-ai-devtools";
+import { TanStackDevtools } from "@tanstack/react-devtools";
+import "./index.css";
+import App from "./App.tsx";
+import { applyTanstackCompat } from "./features/chat/utils/tanstackCompat";
 
-const appRoot = document.getElementById('root')
+const appRoot = document.getElementById("root");
 
 if (!appRoot) {
-  throw new Error('Root element not found')
+  throw new Error("Root element not found");
 }
+
+applyTanstackCompat();
 
 createRoot(appRoot).render(
   <StrictMode>
     <App />
-  </StrictMode>,
-)
+  </StrictMode>
+);
 
 if (import.meta.env.DEV) {
   const devtoolsRootId = 'devtools-root'

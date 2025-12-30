@@ -44,4 +44,5 @@ export type ApprovalInfo = {
   toolCallId: string;
   toolName: string;
   input: unknown;
+  runId?: string;
 };

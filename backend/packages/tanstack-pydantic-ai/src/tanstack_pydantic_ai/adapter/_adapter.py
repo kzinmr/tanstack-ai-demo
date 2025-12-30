@@ -119,6 +119,74 @@ def _scoped_context(**log_context: Any) -> AbstractContextManager[None]:
     return bound_contextvars(**new_context) if new_context else nullcontext()
 
 
+def _tool_call_ids(message: ModelMessage) -> list[str]:
+    if not isinstance(message, ModelResponse):
+        return []
+    ids: list[str] = []
+    for part in message.parts:
+        if isinstance(part, ToolCallPart) and part.tool_call_id:
+            ids.append(part.tool_call_id)
+    return ids
+
+
+def _tool_return_id(message: ModelMessage) -> str | None:
+    if not isinstance(message, ModelRequest):
+        return None
+    for part in message.parts:
+        if isinstance(part, ToolReturnPart) and part.tool_call_id:
+            return part.tool_call_id
+    return None
+
+
+def _normalize_tool_return_order(
+    messages: list[ModelMessage],
+) -> list[ModelMessage]:
+    tool_returns_by_id: dict[str, list[ModelMessage]] = {}
+    tool_returns_order: list[tuple[str, ModelMessage]] = []
+
+    for msg in messages:
+        tool_call_id = _tool_return_id(msg)
+        if not tool_call_id:
+            continue
+        tool_returns_by_id.setdefault(tool_call_id, []).append(msg)
+        tool_returns_order.append((tool_call_id, msg))
+
+    if not tool_returns_by_id:
+        return messages
+
+    normalized: list[ModelMessage] = []
+    for msg in messages:
+        if _tool_return_id(msg):
+            continue
+        normalized.append(msg)
+        for tool_call_id in _tool_call_ids(msg):
+            tool_msgs = tool_returns_by_id.pop(tool_call_id, None)
+            if tool_msgs:
+                normalized.extend(tool_msgs)
+
+    if tool_returns_by_id:
+        for tool_call_id, msg in tool_returns_order:
+            if tool_call_id not in tool_returns_by_id:
+                continue
+            normalized.append(msg)
+            tool_returns_by_id[tool_call_id].remove(msg)
+            if not tool_returns_by_id[tool_call_id]:
+                del tool_returns_by_id[tool_call_id]
+
+    return normalized
+
+
+def _find_unprocessed_tool_calls(messages: list[ModelMessage]) -> list[str]:
+    tool_calls: set[str] = set()
+    tool_returns: set[str] = set()
+    for msg in messages:
+        tool_calls.update(_tool_call_ids(msg))
+        tool_return_id = _tool_return_id(msg)
+        if tool_return_id:
+            tool_returns.add(tool_return_id)
+    return sorted(tool_calls - tool_returns)
+
+
 OnCompleteFunc = Callable[["AgentRunResult"], Any] | None
 
 try:
@@ -375,7 +443,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
                         )
                     )
 
-        return result
+        return _normalize_tool_return_order(result)
 
     @classmethod
     def dump_messages(cls, messages: Sequence[ModelMessage]) -> list[UIMessage]:
@@ -456,8 +524,8 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
         """
         Get message history for agent run.
 
-        For continuation requests with stateful store:
-            Loads history from store using run_id.
+        For requests with stateful store + run_id:
+            Loads history from store using run_id (preferred source of truth).
 
         For new requests or stateless mode:
             Uses messages from request (excluding last user message).
@@ -465,52 +533,81 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
         Raises:
             ValueError: If continuation requested but run_id not found in store.
         """
-        # Stateful continuation: load from store
-        if self.is_continuation and self.store and self.run_id:
+        # Stateful history: load from store when possible
+        if self.store and self.run_id:
             stored = self.store.get(self.run_id)
             if stored is None:
-                raise ValueError(f"Unknown run_id: {self.run_id}")
-            # pydantic-ai expects "unprocessed tool calls" to be present in the
-            # message history when deferred_tool_results are provided. In HITL
-            # flows, we may have stored the pending deferred tool requests
-            # separately (stored.pending). If the message history doesn't include
-            # those tool calls, inject them so continuation can match approvals/
-            # tool_results to tool_call_id.
-            messages = list(stored.messages)
+                if self.is_continuation:
+                    logger.warning(
+                        "run_id not found in store; falling back to request messages",
+                        run_id=self.run_id,
+                    )
+            else:
+                # pydantic-ai expects "unprocessed tool calls" to be present in the
+                # message history when deferred_tool_results are provided. In HITL
+                # flows, we may have stored the pending deferred tool requests
+                # separately (stored.pending). If the message history doesn't include
+                # those tool calls, inject them so continuation can match approvals/
+                # tool_results to tool_call_id.
+                messages = list(stored.messages)
 
-            pending = getattr(stored, "pending", None)
-            if pending is not None:
-                existing_tool_call_ids: set[str] = set()
-                for msg in messages:
-                    if isinstance(msg, ModelResponse):
-                        for part in msg.parts:
-                            if isinstance(part, ToolCallPart) and part.tool_call_id:
-                                existing_tool_call_ids.add(part.tool_call_id)
+                if self.is_continuation:
+                    pending = getattr(stored, "pending", None)
+                    if pending is not None:
+                        existing_tool_call_ids: set[str] = set()
+                        for msg in messages:
+                            if isinstance(msg, ModelResponse):
+                                for part in msg.parts:
+                                    if isinstance(part, ToolCallPart) and part.tool_call_id:
+                                        existing_tool_call_ids.add(part.tool_call_id)
 
-                injected_parts: list[ToolCallPart] = []
+                        injected_parts: list[ToolCallPart] = []
 
-                def _inject_from(parts: Any) -> None:
-                    for p in parts or []:
-                        tool_call_id = getattr(p, "tool_call_id", None)
-                        if not tool_call_id or tool_call_id in existing_tool_call_ids:
-                            continue
-                        injected_parts.append(
-                            ToolCallPart(
-                                tool_name=getattr(p, "tool_name", "unknown"),
-                                args=getattr(p, "args", {}) or {},
-                                tool_call_id=tool_call_id,
-                            )
+                        def _inject_from(parts: Any) -> None:
+                            for p in parts or []:
+                                tool_call_id = getattr(p, "tool_call_id", None)
+                                if not tool_call_id or tool_call_id in existing_tool_call_ids:
+                                    continue
+                                injected_parts.append(
+                                    ToolCallPart(
+                                        tool_name=getattr(p, "tool_name", "unknown"),
+                                        args=getattr(p, "args", {}) or {},
+                                        tool_call_id=tool_call_id,
+                                    )
+                                )
+                                existing_tool_call_ids.add(tool_call_id)
+
+                        # DeferredToolRequests usually has .approvals and .calls
+                        _inject_from(getattr(pending, "approvals", None))
+                        _inject_from(getattr(pending, "calls", None))
+
+                        if injected_parts:
+                            messages.append(ModelResponse(parts=injected_parts))
+
+                messages = _normalize_tool_return_order(messages)
+                unprocessed = _find_unprocessed_tool_calls(messages)
+                pending_ids: set[str] = set()
+                pending = getattr(stored, "pending", None)
+                if pending is not None:
+                    for part in getattr(pending, "approvals", None) or []:
+                        if part.tool_call_id:
+                            pending_ids.add(part.tool_call_id)
+                    for part in getattr(pending, "calls", None) or []:
+                        if part.tool_call_id:
+                            pending_ids.add(part.tool_call_id)
+                if self.user_prompt and unprocessed:
+                    unresolved = [
+                        tool_call_id
+                        for tool_call_id in unprocessed
+                        if tool_call_id not in pending_ids
+                    ]
+                    if unresolved:
+                        logger.warning(
+                            "unprocessed_tool_calls_in_history",
+                            run_id=self.run_id,
+                            tool_call_ids=unresolved,
                         )
-                        existing_tool_call_ids.add(tool_call_id)
-
-                # DeferredToolRequests usually has .approvals and .calls
-                _inject_from(getattr(pending, "approvals", None))
-                _inject_from(getattr(pending, "calls", None))
-
-                if injected_parts:
-                    messages.append(ModelResponse(parts=injected_parts))
-
-            return messages
+                return messages
 
         # Stateless: build from request messages
         messages = self.messages
@@ -519,6 +616,14 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
             parts = messages[-1].parts
             if parts and isinstance(parts[0], UserPromptPart):
                 return messages[:-1]
+        if self.user_prompt:
+            unprocessed = _find_unprocessed_tool_calls(messages)
+            if unprocessed:
+                logger.warning(
+                    "unprocessed_tool_calls_in_history",
+                    run_id=self.run_id,
+                    tool_call_ids=unprocessed,
+                )
         return messages
 
     @property

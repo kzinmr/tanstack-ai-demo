@@ -105,3 +105,19 @@ export function extractArtifactId(parts: MessagePart[]): string | null {
   }
   return null;
 }
+
+export function extractArtifacts(parts: MessagePart[]): Array<{ id: string; type?: string }> {
+  const seen = new Set<string>();
+  const results: Array<{ id: string; type?: string }> = [];
+  for (const part of parts) {
+    if (part.type !== "tool-result") continue;
+    const payload = parseToolResult(part.content);
+    if (!payload?.artifacts) continue;
+    for (const artifact of payload.artifacts) {
+      if (seen.has(artifact.id)) continue;
+      seen.add(artifact.id);
+      results.push({ id: artifact.id, type: artifact.type });
+    }
+  }
+  return results;
+}
