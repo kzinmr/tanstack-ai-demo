@@ -4,15 +4,12 @@ import { aiDevtoolsPlugin } from "@tanstack/react-ai-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import "./index.css";
 import App from "./App.tsx";
-import { applyTanstackCompat } from "./features/chat/utils/tanstackCompat";
 
 const appRoot = document.getElementById("root");
 
 if (!appRoot) {
   throw new Error("Root element not found");
 }
-
-applyTanstackCompat();
 
 createRoot(appRoot).render(
   <StrictMode>

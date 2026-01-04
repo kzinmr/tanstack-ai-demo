@@ -59,6 +59,63 @@ function collectPendingApprovals(
   return approvals;
 }
 
+function normalizeToolCallParts(
+  messages: UIMessage[],
+  approvalRequests: Record<string, ApprovalInfo>
+): { messages: UIMessage[]; changed: boolean } {
+  // Ensure tool-call parts keep approval/output metadata so auto-continue can run.
+  let changed = false;
+
+  const nextMessages = messages.map((message) => {
+    if (message.role !== "assistant") return message;
+
+    const toolResultIds = new Set<string>();
+    for (const part of message.parts) {
+      if (part.type === "tool-result") {
+        toolResultIds.add(part.toolCallId);
+      }
+    }
+
+    let partsChanged = false;
+    const nextParts = message.parts.map((part) => {
+      if (part.type !== "tool-call") return part;
+
+      let updatedPart = part;
+      const approvalRequest = approvalRequests[part.id];
+
+      if (!part.approval && approvalRequest) {
+        updatedPart = {
+          ...updatedPart,
+          approval: {
+            id: approvalRequest.id,
+            needsApproval: true,
+          },
+          state: "approval-requested",
+        };
+      }
+
+      if (!updatedPart.approval && updatedPart.output === undefined && toolResultIds.has(part.id)) {
+        updatedPart = {
+          ...updatedPart,
+          output: true,
+        };
+      }
+
+      if (updatedPart !== part) {
+        partsChanged = true;
+      }
+
+      return updatedPart;
+    });
+
+    if (!partsChanged) return message;
+    changed = true;
+    return { ...message, parts: nextParts };
+  });
+
+  return { messages: nextMessages, changed };
+}
+
 export function useChatSession() {
   const [inputText, setInputText] = useState("");
   const [pendingClientTool, setPendingClientTool] = useState<ClientToolInfo | null>(null);
@@ -139,12 +196,21 @@ export function useChatSession() {
     sendMessage,
     addToolApprovalResponse,
     addToolResult,
+    setMessages,
     isLoading,
     error,
   } = useChat({
     connection,
     onChunk: handleChunk,
   });
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const normalized = normalizeToolCallParts(messages, approvalRequests);
+    if (normalized.changed) {
+      setMessages(normalized.messages);
+    }
+  }, [messages, approvalRequests, setMessages]);
 
   useEffect(() => {
     if (!currentRunId) return;
