@@ -1,5 +1,5 @@
 """
-In-memory continuation hub for pattern A (single-stream HITL).
+In-memory continuation hub for single-stream HITL pattern.
 
 Keeps a per-run queue of approvals/tool results so the streaming
 request can await human input and resume in the same SSE connection.

@@ -176,16 +176,32 @@ async def chat(request: Request) -> StreamingResponse:
                     while True:
                         captured_result = None
                         is_deferred = False
+                        expected_approvals: set[str] = set()
+                        expected_tool_results: set[str] = set()
 
                         async def capturing_native_events() -> AsyncIterator[Any]:
                             nonlocal captured_result, is_deferred
+                            nonlocal expected_approvals, expected_tool_results
                             async for event in current_adapter.run_stream_native():
                                 if isinstance(event, AgentRunResultEvent):
                                     captured_result = event.result
                                     output = getattr(event.result, "output", None)
-                                    is_deferred = isinstance(
-                                        output, DeferredToolRequests
-                                    )
+                                    if isinstance(output, DeferredToolRequests):
+                                        is_deferred = True
+                                        expected_approvals = {
+                                            part.tool_call_id
+                                            for part in output.approvals
+                                            if part.tool_call_id
+                                        }
+                                        expected_tool_results = {
+                                            part.tool_call_id
+                                            for part in output.calls
+                                            if part.tool_call_id
+                                        }
+                                    else:
+                                        is_deferred = False
+                                        expected_approvals = set()
+                                        expected_tool_results = set()
                                 yield event
 
                         async for chunk in event_stream.transform_stream(
@@ -200,6 +216,9 @@ async def chat(request: Request) -> StreamingResponse:
                         if not is_deferred:
                             break
 
+                        collected_approvals: dict[str, bool | dict[str, Any]] = {}
+                        collected_tool_results: dict[str, Any] = {}
+
                         while True:
                             payload = await continuation_hub.wait(
                                 run_id, timeout=KEEPALIVE_INTERVAL_SECONDS
@@ -207,15 +226,34 @@ async def chat(request: Request) -> StreamingResponse:
                             if payload is None:
                                 yield b": keep-alive\n\n"
                                 continue
-                            if not payload.approvals and not payload.tool_results:
-                                continue
-                            break
+                            if payload.approvals:
+                                collected_approvals.update(payload.approvals)
+                            if payload.tool_results:
+                                collected_tool_results.update(payload.tool_results)
+
+                            if not expected_approvals and not expected_tool_results:
+                                break
+
+                            approvals_ready = expected_approvals.issubset(
+                                collected_approvals.keys()
+                            )
+                            tool_results_ready = expected_tool_results.issubset(
+                                collected_tool_results.keys()
+                            )
+                            if approvals_ready and tool_results_ready:
+                                break
 
                         continuation_body = json.dumps(
                             {
                                 "run_id": run_id,
-                                "approvals": payload.approvals,
-                                "tool_results": payload.tool_results,
+                                "approvals": {
+                                    key: collected_approvals[key]
+                                    for key in expected_approvals
+                                },
+                                "tool_results": {
+                                    key: collected_tool_results[key]
+                                    for key in expected_tool_results
+                                },
                             }
                         ).encode("utf-8")
                         current_adapter = TanStackAIAdapter.from_request(
@@ -287,7 +325,7 @@ async def get_csv_data(
 @app.post("/api/continuation")
 async def post_continuation(payload: ContinuationRequest) -> dict:
     """
-    Accept approval/tool results and resume the open SSE stream (Pattern A).
+    Accept approval/tool results and resume the open SSE stream.
     """
     if not payload.run_id:
         raise HTTPException(status_code=400, detail="run_id is required")

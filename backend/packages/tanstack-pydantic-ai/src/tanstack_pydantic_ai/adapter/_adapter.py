@@ -176,17 +176,6 @@ def _normalize_tool_return_order(
     return normalized
 
 
-def _find_unprocessed_tool_calls(messages: list[ModelMessage]) -> list[str]:
-    tool_calls: set[str] = set()
-    tool_returns: set[str] = set()
-    for msg in messages:
-        tool_calls.update(_tool_call_ids(msg))
-        tool_return_id = _tool_return_id(msg)
-        if tool_return_id:
-            tool_returns.add(tool_return_id)
-    return sorted(tool_calls - tool_returns)
-
-
 OnCompleteFunc = Callable[["AgentRunResult"], Any] | None
 
 try:
@@ -208,12 +197,12 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
     - SSE encoding (encode_stream)
     - Stateful continuation for deferred tools (HITL)
 
-    Stateful Continuation (recommended):
+    Stateful Continuation (required in this demo):
         When `store` is provided, the adapter saves message history after each run.
         Continuation requests only need `run_id + tool_results/approvals`.
 
     Stateless Continuation:
-        When `store` is None, continuation requests must include full `messages`.
+        Not supported by this adapter configuration.
 
     Usage with FastAPI:
         ```python
@@ -337,7 +326,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
             body: Raw request body bytes
             accept: Optional Accept header value
             deps: Optional agent dependencies
-            store: Optional RunStorePort for stateful continuation
+            store: RunStorePort for stateful continuation (required)
 
         Note:
             If run_id is not provided in the request, a new one is generated.
@@ -524,106 +513,35 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
         """
         Get message history for agent run.
 
-        For requests with stateful store + run_id:
-            Loads history from store using run_id (preferred source of truth).
+        This adapter runs in stateful-only mode. A RunStore must be provided.
 
-        For new requests or stateless mode:
+        For requests with run_id:
+            Loads history from store using run_id (source of truth).
+
+        For new requests (no stored run):
             Uses messages from request (excluding last user message).
 
         Raises:
-            ValueError: If continuation requested but run_id not found in store.
+            ValueError: If store is missing or continuation requested but run_id
+            not found in store.
         """
-        # Stateful history: load from store when possible
-        if self.store and self.run_id:
+        if self.store is None:
+            raise ValueError("stateful-only adapter requires a RunStore")
+
+        if self.run_id:
             stored = self.store.get(self.run_id)
-            if stored is None:
-                if self.is_continuation:
-                    logger.warning(
-                        "run_id not found in store; falling back to request messages",
-                        run_id=self.run_id,
-                    )
-            else:
-                # pydantic-ai expects "unprocessed tool calls" to be present in the
-                # message history when deferred_tool_results are provided. In HITL
-                # flows, we may have stored the pending deferred tool requests
-                # separately (stored.pending). If the message history doesn't include
-                # those tool calls, inject them so continuation can match approvals/
-                # tool_results to tool_call_id.
-                messages = list(stored.messages)
+            if stored is None and self.is_continuation:
+                raise ValueError("run_id not found in store for continuation")
+            if stored is not None:
+                return list(stored.messages)
 
-                if self.is_continuation:
-                    pending = getattr(stored, "pending", None)
-                    if pending is not None:
-                        existing_tool_call_ids: set[str] = set()
-                        for msg in messages:
-                            if isinstance(msg, ModelResponse):
-                                for part in msg.parts:
-                                    if isinstance(part, ToolCallPart) and part.tool_call_id:
-                                        existing_tool_call_ids.add(part.tool_call_id)
-
-                        injected_parts: list[ToolCallPart] = []
-
-                        def _inject_from(parts: Any) -> None:
-                            for p in parts or []:
-                                tool_call_id = getattr(p, "tool_call_id", None)
-                                if not tool_call_id or tool_call_id in existing_tool_call_ids:
-                                    continue
-                                injected_parts.append(
-                                    ToolCallPart(
-                                        tool_name=getattr(p, "tool_name", "unknown"),
-                                        args=getattr(p, "args", {}) or {},
-                                        tool_call_id=tool_call_id,
-                                    )
-                                )
-                                existing_tool_call_ids.add(tool_call_id)
-
-                        # DeferredToolRequests usually has .approvals and .calls
-                        _inject_from(getattr(pending, "approvals", None))
-                        _inject_from(getattr(pending, "calls", None))
-
-                        if injected_parts:
-                            messages.append(ModelResponse(parts=injected_parts))
-
-                messages = _normalize_tool_return_order(messages)
-                unprocessed = _find_unprocessed_tool_calls(messages)
-                pending_ids: set[str] = set()
-                pending = getattr(stored, "pending", None)
-                if pending is not None:
-                    for part in getattr(pending, "approvals", None) or []:
-                        if part.tool_call_id:
-                            pending_ids.add(part.tool_call_id)
-                    for part in getattr(pending, "calls", None) or []:
-                        if part.tool_call_id:
-                            pending_ids.add(part.tool_call_id)
-                if self.user_prompt and unprocessed:
-                    unresolved = [
-                        tool_call_id
-                        for tool_call_id in unprocessed
-                        if tool_call_id not in pending_ids
-                    ]
-                    if unresolved:
-                        logger.warning(
-                            "unprocessed_tool_calls_in_history",
-                            run_id=self.run_id,
-                            tool_call_ids=unresolved,
-                        )
-                return messages
-
-        # Stateless: build from request messages
+        # Build from request messages for new runs
         messages = self.messages
         if messages and isinstance(messages[-1], ModelRequest):
             # Check if it's a user message - exclude from history
             parts = messages[-1].parts
             if parts and isinstance(parts[0], UserPromptPart):
                 return messages[:-1]
-        if self.user_prompt:
-            unprocessed = _find_unprocessed_tool_calls(messages)
-            if unprocessed:
-                logger.warning(
-                    "unprocessed_tool_calls_in_history",
-                    run_id=self.run_id,
-                    tool_call_ids=unprocessed,
-                )
         return messages
 
     @property
