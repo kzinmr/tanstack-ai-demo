@@ -2,19 +2,16 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StreamChunk, UIMessage } from "@tanstack/ai";
-import type { ContinuationState } from "../types";
 import { useChatSession } from "../hooks/useChatSession";
 
 let mockMessages: UIMessage[] = [];
 let mockIsLoading = false;
 let mockError: Error | null = null;
 const sendMessage = vi.fn();
-const addToolApprovalResponse = vi.fn().mockResolvedValue(undefined);
-const addToolResult = vi.fn().mockResolvedValue(undefined);
-const setMessages = vi.fn();
+const postContinuation = vi.fn().mockResolvedValue(undefined);
 
 let capturedOnChunk: ((chunk: StreamChunk) => void) | null = null;
-let capturedGetContinuationState: (() => ContinuationState) | null = null;
+let capturedGetRunId: (() => string | null) | null = null;
 
 vi.mock("@tanstack/ai-react", () => ({
   useChat: (opts: { onChunk?: (chunk: StreamChunk) => void }) => {
@@ -22,9 +19,6 @@ vi.mock("@tanstack/ai-react", () => ({
     return {
       messages: mockMessages,
       sendMessage,
-      addToolApprovalResponse,
-      addToolResult,
-      setMessages,
       isLoading: mockIsLoading,
       error: mockError,
     };
@@ -32,10 +26,14 @@ vi.mock("@tanstack/ai-react", () => ({
 }));
 
 vi.mock("../chatConnection", () => ({
-  createChatConnection: (getContinuationState: () => ContinuationState) => {
-    capturedGetContinuationState = getContinuationState;
+  createChatConnection: (getRunId: () => string | null) => {
+    capturedGetRunId = getRunId;
     return { connect: vi.fn() };
   },
+}));
+
+vi.mock("../services/dataService", () => ({
+  postContinuation,
 }));
 
 function makeDoneChunk(
@@ -85,11 +83,9 @@ beforeEach(() => {
   mockIsLoading = false;
   mockError = null;
   sendMessage.mockReset();
-  addToolApprovalResponse.mockReset();
-  addToolResult.mockReset();
-  setMessages.mockReset();
+  postContinuation.mockReset();
   capturedOnChunk = null;
-  capturedGetContinuationState = null;
+  capturedGetRunId = null;
 });
 
 describe("useChatSession", () => {
@@ -101,6 +97,7 @@ describe("useChatSession", () => {
       capturedOnChunk?.(makeApprovalChunk("run-1"));
     });
 
+    expect(capturedGetRunId?.()).toBe("run-1");
     expect(result.current.pendingApprovals).toHaveLength(1);
     expect(result.current.pendingApprovals[0].toolCallId).toBe("call-1");
     expect(result.current.pendingApprovals[0].input).toEqual({
@@ -120,20 +117,13 @@ describe("useChatSession", () => {
       await result.current.approve("call-1");
     });
 
-    expect(addToolApprovalResponse).toHaveBeenCalledWith({
-      id: "call-1",
-      approved: true,
+    expect(postContinuation).toHaveBeenCalledWith("run-1", {
+      approvals: { "call-1": true },
     });
-
-    const state1 = capturedGetContinuationState?.();
-    expect(state1?.runId).toBe("run-1");
-    expect(state1?.approvals).toEqual({ "call-1": true });
-
-    const state2 = capturedGetContinuationState?.();
-    expect(state2?.approvals).toEqual({});
+    expect(result.current.pendingApprovals).toHaveLength(0);
   });
 
-  it("queues tool results and consumes continuation state after resolve", async () => {
+  it("posts tool results after resolve", async () => {
     const { result } = renderHook(() => useChatSession());
 
     act(() => {
@@ -147,19 +137,9 @@ describe("useChatSession", () => {
       });
     });
 
-    expect(addToolResult).toHaveBeenCalledWith({
-      toolCallId: "tool-1",
-      tool: "export_csv",
-      output: { success: true },
-      state: "output-available",
-      errorText: undefined,
+    expect(postContinuation).toHaveBeenCalledWith("run-1", {
+      toolResults: { "tool-1": { success: true } },
     });
-
-    const state1 = capturedGetContinuationState?.();
-    expect(state1?.toolResults).toEqual({ "tool-1": { success: true } });
-
-    const state2 = capturedGetContinuationState?.();
-    expect(state2?.toolResults).toEqual({});
   });
 
   it("sets pending client tool when tool-input-available arrives", () => {

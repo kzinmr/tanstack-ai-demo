@@ -50,20 +50,22 @@ def _make_agent() -> Agent[None, str | DeferredToolRequests]:
 
 def _build_adapter(
     agent: Agent[None, str | DeferredToolRequests],
-    store: InMemoryRunStore,
+    run_store: InMemoryRunStore,
     body: dict[str, Any],
 ) -> TanStackAIAdapter[None, str | DeferredToolRequests]:
     body_bytes = json.dumps(body).encode("utf-8")
-    return TanStackAIAdapter.from_request(agent=agent, body=body_bytes, store=store)
+    return TanStackAIAdapter.from_request(
+        agent=agent, body=body_bytes, run_store=run_store
+    )
 
 
 def test_hitl_approval_flow_produces_tool_result() -> None:
-    store = InMemoryRunStore()
+    run_store = InMemoryRunStore()
     agent = _make_agent()
 
     adapter = _build_adapter(
         agent,
-        store,
+        run_store,
         {"messages": [{"role": "user", "content": "run"}], "model": "test"},
     )
     frames = asyncio.run(_collect(adapter.streaming_response()))
@@ -72,11 +74,11 @@ def test_hitl_approval_flow_produces_tool_result() -> None:
 
     run_id = adapter.run_id
     tool_call_id = approval["toolCallId"]
-    assert store.get(run_id) is not None
+    assert run_store.get(run_id) is not None
 
     adapter2 = _build_adapter(
         agent,
-        store,
+        run_store,
         {"run_id": run_id, "approvals": {tool_call_id: True}},
     )
     frames2 = asyncio.run(_collect(adapter2.streaming_response()))
@@ -88,12 +90,12 @@ def test_hitl_approval_flow_produces_tool_result() -> None:
 
 
 def test_hitl_rejection_flow_produces_tool_result() -> None:
-    store = InMemoryRunStore()
+    run_store = InMemoryRunStore()
     agent = _make_agent()
 
     adapter = _build_adapter(
         agent,
-        store,
+        run_store,
         {"messages": [{"role": "user", "content": "run"}], "model": "test"},
     )
     frames = asyncio.run(_collect(adapter.streaming_response()))
@@ -105,7 +107,7 @@ def test_hitl_rejection_flow_produces_tool_result() -> None:
 
     adapter2 = _build_adapter(
         agent,
-        store,
+        run_store,
         {"run_id": run_id, "approvals": {tool_call_id: False}},
     )
     frames2 = asyncio.run(_collect(adapter2.streaming_response()))
@@ -121,7 +123,7 @@ def test_hitl_rejection_flow_produces_tool_result() -> None:
 
 
 def test_message_history_prefers_store_when_run_id_present() -> None:
-    store = InMemoryRunStore()
+    run_store = InMemoryRunStore()
     agent = _make_agent()
 
     run_id = "run-1"
@@ -146,11 +148,11 @@ def test_message_history_prefers_store_when_run_id_present() -> None:
             ]
         ),
     ]
-    store.set_messages(run_id, stored_messages, model="test")
+    run_store.set_messages(run_id, stored_messages, model="test")
 
     adapter = _build_adapter(
         agent,
-        store,
+        run_store,
         {"run_id": run_id, "messages": [{"role": "user", "content": "next"}]},
     )
 

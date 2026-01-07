@@ -8,7 +8,7 @@ Usage:
     from tanstack_pydantic_ai.adapter import TanStackAIAdapter, TanStackEventStream
 
     # In FastAPI endpoint
-    adapter = TanStackAIAdapter.from_request(agent, body, store=store)
+    adapter = TanStackAIAdapter.from_request(agent, body, run_store=run_store)
     return StreamingResponse(
         adapter.streaming_response(),
         headers=dict(adapter.response_headers),

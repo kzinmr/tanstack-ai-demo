@@ -4,7 +4,7 @@
 
 This document explains the root cause and the chosen fix for the issue where
 results were not rendered after `approval-requested`, and records the reasoning
-behind the implementation decision.
+behind the implementation decision and tradeoffs.
 
 ---
 
@@ -17,114 +17,68 @@ behind the implementation decision.
 
 ---
 
-## Reference Excerpts
+## Reference Excerpts (Context)
 
 ### Meaning of `done` and the Root of the Issue
 
 ```
-TanStack AI builds the UI from a stream of chunks, and the **`done` chunk
-(or a closed stream) means “this response is finished.”**
+TanStack AI builds the UI from a stream of chunks, and the `done` chunk
+(or a closed stream) means "this response is finished."
 
-Additionally, TanStack's `StreamProcessor` treats **the end of the stream
-itself** as one of the triggers for detecting completed tool calls.
-
-So the situation usually falls into one of these:
-
-1. **The backend closes the HTTP response immediately after sending
-   `approval-requested`.**
-   -> The frontend considers the response finished and cannot receive tool
-   results on that stream.
-
-2. The intended TanStack approval flow is **two-phase (see below)**, but
-   the current implementation stops at “approve -> execute tool on
-   pydantic-ai” and **never starts the follow-up stream on the frontend**.
-   -> The tool runs, but nothing is streamed back to the UI.
-```
-
-### Two-Phase (Pattern B) and Recommended Architecture
-
-```
-### Pattern B (likely recommended): end with `done` on approval request,
-then start the “next stream” after approval
-
-This **aligns best with pydantic-ai Deferred Tools**. It is OK for the first
-stream to end (`done`) at `approval-requested`. The key is to **start a second
-stream after approval**.
-
-* The UI receives `approval-requested` and calls
-  `addToolApprovalResponse({ id, approved })`.
-* That call triggers the **same `useChat` connection adapter** to start the
-  next round, and the backend:
-  * executes the tool (or retrieves an already executed result)
-  * streams `tool_result` chunks (plus any follow-up assistant content)
-```
-
-```
-### Recommended: Pattern B (two-phase) with the same `/chat` endpoint
-
-* **First `/chat`**: run pydantic-ai; when a Deferred Tool is hit, return
-  `tool_call` -> `approval-requested` -> `done`.
-* **On approval**: the frontend calls `addToolApprovalResponse`,
-  and the connection adapter posts to `/chat` again
-  (`messages` + `data`).
-* **Second `/chat`**: read approval from `data`, resume deferred execution,
-  and return `tool_result` -> `content` -> `done`.
-```
-
-### Checklist (Consistency)
-
-```
-1. **toolCallId consistency**
-   * `tool_call.toolCall.id` from phase 1 must match
-   * `tool_result.toolCallId` from phase 2
-
-2. **approvalId consistency**
-   * `approval-requested` approval.id must match
-   * `addToolApprovalResponse({ id })`
-
-3. **Ensure the stream is resumed/restarted after approval**
-   * Pattern A: continue the same stream
-   * Pattern B: start the second HTTP stream (`messages` + `data`)
+Additionally, TanStack's StreamProcessor treats the end of the stream
+itself as one of the triggers for detecting completed tool calls.
 ```
 
 ---
 
-## Decision Adopted
+## Decision Adopted (Updated)
 
 ### Decision
 
-- **Adopt Pattern B (two-phase)**
-- Avoid long-lived single streams; start a second stream after approval
+- **Adopt single-stream continuation pattern**
+- Keep the SSE stream open across `approval-requested` and resume in-place
 
 ### Rationale
 
-- Aligns with pydantic-ai Deferred Tools
-- Avoids long-lived HTTP/SSE connections
-- Matches TanStack AI semantics for `approval-requested` + `done`
+- Aligns with TanStack AI state machine expectations (single-stream lifecycle)
+- Removes the need to "reconstruct" tool-call state in the UI
+- Simplifies frontend state management and reduces workarounds
 
 ---
 
-## Implementation Reflection
+## Design Tradeoffs
 
-### 1) Two-Phase Continuation
+### State Machine Compatibility vs Connection Lifetime
 
-- First stream returns `approval-requested` → `done`
-- UI sends approval with `addToolApprovalResponse`
-- Second `/api/chat` stream returns `tool_result` → `content` → `done`
+- Single-stream continuation removes the stream-boundary mismatch and keeps
+  TanStack's tool-call lifecycle consistent.
+- The cost is long-lived SSE connections, keep-alives, and timeout handling.
 
-### 2) UI Normalization Within Official APIs
+### Simplicity in UI vs Complexity in App Layer
 
-Instead of patching TanStack internals, use `setMessages` provided by `useChat`
-to **re-attach approval/output metadata** on tool-call parts.
+- Frontend complexity is reduced (no continuationRef, no message normalization).
+- Backend gains responsibility for waiting and resuming (continuation hub,
+  keep-alive, separate continuation endpoint).
 
-- Re-apply approval metadata when `approval-requested` arrived
-- Fill `output` on tool-calls when a `tool-result` part is present
-- Ensure auto-continue can evaluate completion correctly
+## Implementation Tradeoffs
+
+### What Moved to the App Layer
+
+- `/api/chat` holds the stream open after `approval-requested`
+- `/api/continuation` receives approvals/tool results
+- A per-run continuation hub coordinates resume events
+- SSE keep-alives prevent idle timeouts while awaiting approval
+
+### What Was Removed from the Frontend
+
+- `normalizeToolCallParts` and related message patching
+- `continuationRef` and client-side auto-continue payload building
+- Dependence on `addToolApprovalResponse` / `addToolResult` to trigger a new stream
 
 ---
 
-## Expected Outcomes
+## Expected Outcomes (Updated)
 
-- Results render even when `approval-requested` is followed by `done`
-- Tool execution results appear in the UI
-- Better resilience to TanStack internal changes
+- Tool approval and tool results appear in the same stream as the tool call
+- UI no longer needs to patch tool-call state after the fact
+- Reduced frontend state complexity, at the cost of long-lived SSE management

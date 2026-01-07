@@ -8,16 +8,22 @@ This module provides:
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from pydantic_ai import AgentRunResultEvent, DeferredToolRequests
 from structlog.contextvars import bound_contextvars
 from tanstack_pydantic_ai import TanStackAIAdapter
+from tanstack_pydantic_ai.shared.sse import encode_done
 
 from .agent import get_agent
+from .continuations import ContinuationPayload, get_continuation_hub
 from .db import get_db_connection
 from .deps import Deps
 from .logging import configure_logging, get_logger
@@ -46,7 +52,16 @@ app.add_middleware(
 )
 
 # Run store for HITL continuation (swap via settings)
-store = get_run_store()
+run_store = get_run_store()
+continuation_hub = get_continuation_hub()
+
+KEEPALIVE_INTERVAL_SECONDS = 15.0
+
+
+class ContinuationRequest(BaseModel):
+    run_id: str
+    approvals: dict[str, bool | dict[str, Any]] = Field(default_factory=dict)
+    tool_results: dict[str, Any] = Field(default_factory=dict)
 
 
 def _sse_headers() -> dict[str, str]:
@@ -71,8 +86,6 @@ async def chat(request: Request) -> StreamingResponse:
 
     Returns SSE stream with TanStack AI compatible chunks.
     """
-    import json
-
     body = await request.body()
     accept = request.headers.get("accept")
 
@@ -113,10 +126,146 @@ async def chat(request: Request) -> StreamingResponse:
                     body=body,
                     accept=accept,
                     deps=deps,
-                    store=store,
+                    run_store=run_store,
                 )
-                async for chunk in adapter.streaming_response():
-                    yield chunk
+                event_stream = adapter.build_event_stream()
+                model_name = adapter.run_input.model or settings.llm_model or "unknown"
+
+                def _usage_from_result(result: Any) -> dict[str, int] | None:
+                    if result is None:
+                        return None
+                    try:
+                        usage_data = result.usage()
+                    except Exception:
+                        return None
+                    if not usage_data:
+                        return None
+
+                    def _get_usage_value(*names: str) -> int | None:
+                        for name in names:
+                            if isinstance(usage_data, dict) and name in usage_data:
+                                return int(usage_data[name])
+                            if hasattr(usage_data, name):
+                                return int(getattr(usage_data, name))
+                        return None
+
+                    prompt_tokens = _get_usage_value(
+                        "prompt_tokens", "promptTokens", "input_tokens", "inputTokens"
+                    )
+                    completion_tokens = _get_usage_value(
+                        "completion_tokens",
+                        "completionTokens",
+                        "output_tokens",
+                        "outputTokens",
+                    )
+                    total_tokens = _get_usage_value("total_tokens", "totalTokens")
+
+                    if prompt_tokens is None or completion_tokens is None:
+                        return None
+                    if total_tokens is None:
+                        total_tokens = prompt_tokens + completion_tokens
+
+                    return {
+                        "promptTokens": prompt_tokens,
+                        "completionTokens": completion_tokens,
+                        "totalTokens": total_tokens,
+                    }
+
+                try:
+                    current_adapter = adapter
+                    while True:
+                        captured_result = None
+                        is_deferred = False
+                        expected_approvals: set[str] = set()
+                        expected_tool_results: set[str] = set()
+
+                        async def capturing_native_events() -> AsyncIterator[Any]:
+                            nonlocal captured_result, is_deferred
+                            nonlocal expected_approvals, expected_tool_results
+                            async for event in current_adapter.run_stream_native():
+                                if isinstance(event, AgentRunResultEvent):
+                                    captured_result = event.result
+                                    output = getattr(event.result, "output", None)
+                                    if isinstance(output, DeferredToolRequests):
+                                        is_deferred = True
+                                        expected_approvals = {
+                                            part.tool_call_id
+                                            for part in output.approvals
+                                            if part.tool_call_id
+                                        }
+                                        expected_tool_results = {
+                                            part.tool_call_id
+                                            for part in output.calls
+                                            if part.tool_call_id
+                                        }
+                                    else:
+                                        is_deferred = False
+                                        expected_approvals = set()
+                                        expected_tool_results = set()
+                                yield event
+
+                        async for chunk in event_stream.transform_stream(
+                            capturing_native_events(),
+                            model_name=model_name,
+                            usage_provider=lambda: _usage_from_result(captured_result),
+                        ):
+                            if chunk.type == "done" and is_deferred:
+                                continue
+                            yield event_stream.encode_event(chunk).encode("utf-8")
+
+                        if not is_deferred:
+                            break
+
+                        collected_approvals: dict[str, bool | dict[str, Any]] = {}
+                        collected_tool_results: dict[str, Any] = {}
+
+                        while True:
+                            payload = await continuation_hub.wait(
+                                run_id, timeout=KEEPALIVE_INTERVAL_SECONDS
+                            )
+                            if payload is None:
+                                yield b": keep-alive\n\n"
+                                continue
+                            if payload.approvals:
+                                collected_approvals.update(payload.approvals)
+                            if payload.tool_results:
+                                collected_tool_results.update(payload.tool_results)
+
+                            if not expected_approvals and not expected_tool_results:
+                                break
+
+                            approvals_ready = expected_approvals.issubset(
+                                collected_approvals.keys()
+                            )
+                            tool_results_ready = expected_tool_results.issubset(
+                                collected_tool_results.keys()
+                            )
+                            if approvals_ready and tool_results_ready:
+                                break
+
+                        continuation_body = json.dumps(
+                            {
+                                "run_id": run_id,
+                                "approvals": {
+                                    key: collected_approvals[key]
+                                    for key in expected_approvals
+                                },
+                                "tool_results": {
+                                    key: collected_tool_results[key]
+                                    for key in expected_tool_results
+                                },
+                            }
+                        ).encode("utf-8")
+                        current_adapter = TanStackAIAdapter.from_request(
+                            agent=agent,
+                            body=continuation_body,
+                            accept=accept,
+                            deps=deps,
+                            run_store=run_store,
+                        )
+                finally:
+                    await continuation_hub.clear(run_id)
+                yield encode_done().encode("utf-8")
 
     return StreamingResponse(
         TanStackAIAdapter.stream_with_error_handling(
@@ -171,6 +320,27 @@ async def get_csv_data(
         "original_row_count": preview.original_row_count,
         "exported_row_count": preview.exported_row_count,
     }
+
+
+@app.post("/api/continuation")
+async def post_continuation(payload: ContinuationRequest) -> dict:
+    """
+    Accept approval/tool results and resume the open SSE stream.
+    """
+    if not payload.run_id:
+        raise HTTPException(status_code=400, detail="run_id is required")
+    if not payload.approvals and not payload.tool_results:
+        raise HTTPException(
+            status_code=400, detail="approvals or tool_results must be provided"
+        )
+
+    await continuation_hub.push(
+        payload.run_id,
+        ContinuationPayload(
+            approvals=payload.approvals, tool_results=payload.tool_results
+        ),
+    )
+    return {"status": "ok"}
 
 
 @app.get("/health")
