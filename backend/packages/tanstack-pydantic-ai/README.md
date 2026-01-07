@@ -33,7 +33,7 @@ from pydantic_ai import Agent
 from tanstack_pydantic_ai import TanStackAIAdapter, InMemoryRunStore
 
 agent = Agent("openai:gpt-5-mini")
-store = InMemoryRunStore()  # For stateful continuation (any RunStorePort works)
+run_store = InMemoryRunStore()  # For stateful continuation (any RunStorePort works)
 
 app = FastAPI()
 
@@ -42,7 +42,7 @@ async def chat(request: Request):
     adapter = TanStackAIAdapter.from_request(
         agent=agent,
         body=await request.body(),
-        store=store,
+        run_store=run_store,
     )
     return StreamingResponse(
         adapter.streaming_response(),
@@ -65,13 +65,13 @@ adapter = TanStackAIAdapter.from_request(
     body=request_body,
     accept=None,           # Optional Accept header
     deps=None,             # Optional agent dependencies
-    store=None,            # Optional store for stateful continuation
+    run_store=run_store,   # RunStore for stateful continuation (required)
 )
 
 # Properties
 adapter.run_id              # Unique run ID for continuation
 adapter.is_continuation     # True if this is a continuation request
-adapter.message_history     # Loaded from store or request
+adapter.message_history     # Loaded from run_store or request (new runs)
 adapter.user_prompt         # Extracted user prompt
 
 # Streaming

@@ -198,7 +198,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
     - Stateful continuation for deferred tools (HITL)
 
     Stateful Continuation (required in this demo):
-        When `store` is provided, the adapter saves message history after each run.
+        When `run_store` is provided, the adapter saves message history after each run.
         Continuation requests only need `run_id + tool_results/approvals`.
 
     Stateless Continuation:
@@ -212,12 +212,12 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
 
         app = FastAPI()
         agent = Agent(...)
-        store = InMemoryRunStore()  # For stateful continuation
+        run_store = InMemoryRunStore()  # For stateful continuation
 
         @app.post("/api/chat")
         async def chat(request: Request):
             adapter = TanStackAIAdapter.from_request(
-                agent, await request.body(), store=store
+                agent, await request.body(), run_store=run_store
             )
             return StreamingResponse(
                 adapter.streaming_response(),
@@ -228,9 +228,9 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
 
     agent: Agent[AgentDepsT, OutputDataT]
     run_input: RequestData
+    run_store: RunStorePort
     accept: str | None = None
     deps: AgentDepsT | None = None
-    store: RunStorePort | None = None
 
     # ─────────────────────────────────────────────────────────────────
     # Static helpers
@@ -314,9 +314,9 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
         agent: Agent[AgentDepsT, OutputDataT],
         body: bytes,
         *,
+        run_store: RunStorePort,
         accept: str | None = None,
         deps: AgentDepsT | None = None,
-        store: RunStorePort | None = None,
     ) -> TanStackAIAdapter[AgentDepsT, OutputDataT]:
         """
         Create adapter from HTTP request body.
@@ -324,9 +324,9 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
         Args:
             agent: The pydantic-ai Agent instance
             body: Raw request body bytes
+            run_store: RunStorePort for stateful continuation (required)
             accept: Optional Accept header value
             deps: Optional agent dependencies
-            store: RunStorePort for stateful continuation (required)
 
         Note:
             If run_id is not provided in the request, a new one is generated.
@@ -343,7 +343,7 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
             run_input=run_input,
             accept=accept,
             deps=deps,
-            store=store,
+            run_store=run_store,
         )
 
     @classmethod
@@ -525,13 +525,13 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
             ValueError: If store is missing or continuation requested but run_id
             not found in store.
         """
-        if self.store is None:
-            raise ValueError("stateful-only adapter requires a RunStore")
+        if self.run_store is None:
+            raise ValueError("stateful-only adapter requires a run_store")
 
         if self.run_id:
-            stored = self.store.get(self.run_id)
+            stored = self.run_store.get(self.run_id)
             if stored is None and self.is_continuation:
-                raise ValueError("run_id not found in store for continuation")
+                raise ValueError("run_id not found in run_store for continuation")
             if stored is not None:
                 return list(stored.messages)
 
@@ -605,15 +605,15 @@ class TanStackAIAdapter[AgentDepsT, OutputDataT]:
 
             async for event in self.agent.run_stream_events(prompt, **kwargs):
                 # Capture AgentRunResultEvent and save to store
-                if self.store and isinstance(event, AgentRunResultEvent):
+                if self.run_store and isinstance(event, AgentRunResultEvent):
                     result = event.result
                     # Save message history for continuation
-                    self.store.set_messages(run_id, result.all_messages(), model)
+                    self.run_store.set_messages(run_id, result.all_messages(), model)
                     # Save pending deferred tools if any
                     if isinstance(result.output, DeferredToolRequests):
-                        self.store.set_pending(run_id, result.output, model)
+                        self.run_store.set_pending(run_id, result.output, model)
                     else:
-                        self.store.set_pending(run_id, None, model)
+                        self.run_store.set_pending(run_id, None, model)
 
                 yield event
 

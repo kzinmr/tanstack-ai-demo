@@ -52,7 +52,7 @@ app.add_middleware(
 )
 
 # Run store for HITL continuation (swap via settings)
-store = get_run_store()
+run_store = get_run_store()
 continuation_hub = get_continuation_hub()
 
 KEEPALIVE_INTERVAL_SECONDS = 15.0
@@ -126,7 +126,7 @@ async def chat(request: Request) -> StreamingResponse:
                     body=body,
                     accept=accept,
                     deps=deps,
-                    store=store,
+                    run_store=run_store,
                 )
                 event_stream = adapter.build_event_stream()
                 model_name = adapter.run_input.model or settings.llm_model or "unknown"
@@ -261,7 +261,7 @@ async def chat(request: Request) -> StreamingResponse:
                             body=continuation_body,
                             accept=accept,
                             deps=deps,
-                            store=store,
+                            run_store=run_store,
                         )
                 finally:
                     await continuation_hub.clear(run_id)
