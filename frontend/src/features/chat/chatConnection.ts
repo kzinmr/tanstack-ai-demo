@@ -1,27 +1,11 @@
 import { fetchServerSentEvents, type ConnectionAdapter } from "@tanstack/ai-react";
-import type { ContinuationState } from "./types";
 
 export function createChatConnection(
-  getContinuationState: () => ContinuationState,
+  getRunId: () => string | null,
   apiBase = ""
 ): ConnectionAdapter {
   return fetchServerSentEvents(`${apiBase}/api/chat`, async () => {
-    const { pending, runId, approvals, toolResults } = getContinuationState();
-    const hasApprovals = Object.keys(approvals).length > 0;
-    const hasToolResults = Object.keys(toolResults).length > 0;
-    const isContinuation = pending && !!runId && (hasApprovals || hasToolResults);
-
-    if (isContinuation) {
-      return {
-        headers: { Accept: "text/event-stream" },
-        body: {
-          run_id: runId,
-          approvals,
-          tool_results: toolResults,
-        },
-      };
-    }
-
+    const runId = getRunId();
     return {
       headers: { Accept: "text/event-stream" },
       body: runId ? { run_id: runId } : undefined,

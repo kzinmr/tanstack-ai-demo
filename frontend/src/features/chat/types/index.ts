@@ -1,10 +1,3 @@
-export type ContinuationState = {
-  pending: boolean;
-  runId: string | null;
-  approvals: Record<string, boolean>;
-  toolResults: Record<string, unknown>;
-};
-
 export type ArtifactDataInline = {
   mode?: "inline";
   rows: Record<string, unknown>[];

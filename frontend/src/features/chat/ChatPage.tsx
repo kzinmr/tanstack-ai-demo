@@ -25,6 +25,7 @@ export function ChatPage() {
     approve,
     deny,
     resolveClientTool,
+    isContinuing,
     getRunIdForMessage,
   } = useChatSession();
 
@@ -38,11 +39,11 @@ export function ChatPage() {
   );
   const approvalsForPanel = useMemo(() => {
     if (hasPendingApprovals) return pendingApprovals;
-    if (isLoading && lastApproval) return [lastApproval];
+    if (isContinuing && lastApproval) return [lastApproval];
     return [];
-  }, [hasPendingApprovals, pendingApprovals, isLoading, lastApproval]);
+  }, [hasPendingApprovals, pendingApprovals, isContinuing, lastApproval]);
   const isProcessingApproval =
-    !hasPendingApprovals && !!lastApproval && isLoading;
+    !hasPendingApprovals && !!lastApproval && isContinuing;
 
   useEffect(() => {
     setVisibleError(error ?? null);
@@ -57,10 +58,10 @@ export function ChatPage() {
       setLastApproval(pendingApprovals[0] ?? null);
       return;
     }
-    if (!isLoading) {
+    if (!isContinuing) {
       setLastApproval(null);
     }
-  }, [hasPendingApprovals, pendingApprovals, isLoading]);
+  }, [hasPendingApprovals, pendingApprovals, isContinuing]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,7 +130,7 @@ export function ChatPage() {
                 pendingApprovalByToolCallId={pendingApprovalByToolCallId}
                 onApprove={approve}
                 onDeny={deny}
-                isLoading={isLoading}
+                isLoading={isContinuing}
                 showInlineApprovalActions={!hasPendingApprovals}
               />
             ))
@@ -139,7 +140,7 @@ export function ChatPage() {
           <ToolInputPanel
             clientTool={pendingClientTool}
             onComplete={resolveClientTool}
-            isLoading={isLoading}
+            isLoading={isContinuing}
           />
 
           {/* Scroll anchor */}
@@ -152,7 +153,7 @@ export function ChatPage() {
           approvals={approvalsForPanel}
           onApprove={approve}
           onDeny={deny}
-          isLoading={isLoading}
+          isLoading={isContinuing}
           isProcessing={isProcessingApproval}
         />
         {/* Input form */}
