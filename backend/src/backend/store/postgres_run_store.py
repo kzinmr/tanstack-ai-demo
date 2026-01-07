@@ -8,6 +8,7 @@ import asyncio
 import json
 import threading
 from collections.abc import Coroutine
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -51,7 +52,7 @@ RETURNING model, messages, pending;
 """
 
 _SELECT_SQL = """
-SELECT model, messages, pending
+SELECT model, messages, pending, updated_at
 FROM run_store
 WHERE run_id = $1;
 """
@@ -59,6 +60,11 @@ WHERE run_id = $1;
 _DELETE_SQL = """
 DELETE FROM run_store
 WHERE run_id = $1;
+"""
+
+_CLEANUP_EXPIRED_SQL = """
+DELETE FROM run_store
+WHERE updated_at < NOW() - ($1 * INTERVAL '1 minute');
 """
 
 
@@ -110,10 +116,25 @@ class _AsyncpgRunner:
 class PostgresRunStoreAdapter(RunStorePort):
     """PostgreSQL-backed run store for stateful continuation."""
 
-    def __init__(self, dsn: str) -> None:
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        ttl_minutes: int | None = None,
+        max_messages: int | None = None,
+    ) -> None:
         if not dsn:
             raise ValueError("Postgres run store requires a database URL.")
         self._runner = _AsyncpgRunner(dsn)
+        self._ttl_minutes = (
+            ttl_minutes if ttl_minutes is not None and ttl_minutes > 0 else None
+        )
+        self._ttl = (
+            timedelta(minutes=self._ttl_minutes)
+            if self._ttl_minutes is not None
+            else None
+        )
+        self._max_messages = max_messages if max_messages and max_messages > 0 else None
 
     @staticmethod
     def _to_json(payload: Any) -> str:
@@ -124,6 +145,31 @@ class PostgresRunStoreAdapter(RunStorePort):
         if payload is None:
             return None
         return cls._to_json(payload)
+
+    def _apply_max_messages(
+        self, messages: list[ModelMessage]
+    ) -> list[ModelMessage]:
+        if self._max_messages is None:
+            return messages
+        return messages[-self._max_messages :]
+
+    def _is_expired(self, updated_at: datetime | None) -> bool:
+        if self._ttl is None or updated_at is None:
+            return False
+        if updated_at.tzinfo is None:
+            now = datetime.now()
+        else:
+            now = datetime.now(tz=updated_at.tzinfo or timezone.utc)
+        return now - updated_at > self._ttl
+
+    def cleanup_expired(self) -> int:
+        if self._ttl_minutes is None:
+            return 0
+        result = self._runner.execute(_CLEANUP_EXPIRED_SQL, self._ttl_minutes)
+        try:
+            return int(str(result).split()[-1])
+        except (IndexError, ValueError):
+            return 0
 
     def _row_to_state(
         self,
@@ -161,18 +207,23 @@ class PostgresRunStoreAdapter(RunStorePort):
         row = self._runner.fetchrow(_SELECT_SQL, run_id)
         if row is None:
             return None
+        if self._is_expired(row["updated_at"]):
+            self._runner.execute(_DELETE_SQL, run_id)
+            return None
         return self._row_to_state(row)
 
     def set_messages(
         self, run_id: str, messages: list[ModelMessage], model: str | None
     ) -> RunState:
-        payload = _MESSAGES_ADAPTER.dump_python(messages, mode="json")
+        self.cleanup_expired()
+        trimmed_messages = self._apply_max_messages(messages)
+        payload = _MESSAGES_ADAPTER.dump_python(trimmed_messages, mode="json")
         row = self._runner.fetchrow(
             _UPSERT_MESSAGES_SQL, run_id, model, self._to_json(payload)
         )
         return self._row_to_state(
             row,
-            fallback_messages=messages,
+            fallback_messages=trimmed_messages,
             fallback_model=model,
         )
 
@@ -182,6 +233,7 @@ class PostgresRunStoreAdapter(RunStorePort):
         pending: DeferredToolRequests | None,
         model: str | None,
     ) -> RunState:
+        self.cleanup_expired()
         messages_payload = _MESSAGES_ADAPTER.dump_python([], mode="json")
         pending_payload = _PENDING_ADAPTER.dump_python(pending, mode="json")
         row = self._runner.fetchrow(
