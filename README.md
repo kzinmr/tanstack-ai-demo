@@ -163,6 +163,8 @@ Postgres run store (persist run state across restarts):
 
 - `RUN_STORE_BACKEND=postgres`
 - `RUN_STORE_DATABASE_URL=...` (optional; defaults to `DATABASE_URL`)
+- `RUN_STORE_TTL_MINUTES=60`
+- `RUN_STORE_MAX_MESSAGES=200`
 
 S3 artifact store (signed URL downloads):
 
@@ -175,6 +177,10 @@ S3 artifact store (signed URL downloads):
 
 When `mode=download` is passed to `/api/data/{run_id}/{artifact_id}`, the backend
 returns a signed URL instead of inline rows if the artifact store supports it.
+
+Artifact memory limits (in-memory store only):
+
+- `ARTIFACT_STORE_MAX_ROWS=1000`
 
 ## Tools
 
